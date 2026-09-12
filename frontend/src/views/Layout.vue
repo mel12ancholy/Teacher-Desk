@@ -73,7 +73,11 @@
           <el-icon><UserFilled /></el-icon>
           <template #title>用户管理</template>
         </el-menu-item>
-        <el-menu-item index="/subjects" v-if="userStore.isAdmin">
+        <el-menu-item index="/teachers">
+          <el-icon><Avatar /></el-icon>
+          <template #title>任课教师</template>
+        </el-menu-item>
+        <el-menu-item index="/subjects">
           <el-icon><Reading /></el-icon>
           <template #title>科目管理</template>
         </el-menu-item>
@@ -198,7 +202,8 @@ import {
   Setting,
   Bell,
   Grid,
-  Medal
+  Medal,
+  Avatar
 } from '@element-plus/icons-vue'
 
 const route = useRoute()

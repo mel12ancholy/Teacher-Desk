@@ -73,10 +73,14 @@ const routes = [
         meta: { requiresAdmin: true }
       },
       {
+        path: 'teachers',
+        name: 'Teachers',
+        component: () => import('@/views/Teachers.vue')
+      },
+      {
         path: 'subjects',
         name: 'Subjects',
-        component: () => import('@/views/Subjects.vue'),
-        meta: { requiresAdmin: true }
+        component: () => import('@/views/Subjects.vue')
       },
       {
         path: 'semesters',

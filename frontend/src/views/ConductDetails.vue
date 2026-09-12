@@ -3,6 +3,12 @@
     <el-card shadow="never" class="filter-card">
       <div class="filter-bar">
         <div class="filter-item">
+          <span class="filter-label">班级：</span>
+          <el-select v-model="filterClassId" style="width: 160px" placeholder="选择班级">
+            <el-option v-for="c in classes" :key="c.id" :label="c.name" :value="c.id" />
+          </el-select>
+        </div>
+        <div class="filter-item">
           <span class="filter-label">学期：</span>
           <el-select v-model="filterTermId" style="width: 180px" placeholder="选择学期">
             <el-option v-for="t in terms" :key="t.id" :label="t.name" :value="t.id" />
@@ -48,19 +54,23 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import api from '@/api'
+import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
 
+const classes = ref([])
 const terms = ref([])
 const students = ref([])
 const details = ref([])
 const loading = ref(false)
 
+const filterClassId = ref(null)
 const filterTermId = ref(null)
 const filterStudentId = ref(null)
 const filterOrder = ref('desc')
@@ -79,10 +89,31 @@ const loadTerms = async () => {
   }
 }
 
-// 学生列表与汇总接口同源：仅返回当前用户有权限管理的学生
+const loadClasses = async () => {
+  const data = await api.classes.list()
+  classes.value = data || []
+  if (classes.value.length) {
+    // 优先使用上层页面携带的班级参数；单班级用户默认本班
+    const fromQuery = Number(route.query.class_id)
+    const matched = classes.value.find(c => c.id === fromQuery)
+    if (matched) {
+      filterClassId.value = matched.id
+    } else {
+      const own = userStore.classId
+      filterClassId.value = classes.value.some(c => c.id === own) ? own : classes.value[0].id
+    }
+  }
+}
+
+// 学生列表与汇总接口同源：仅返回当前用户有权限管理的学生，并按所选班级过滤
 const loadStudents = async () => {
   try {
-    const data = await api.students.list({ page_size: 1000 })
+    filterStudentId.value = null
+    const params = { page_size: 1000 }
+    if (filterClassId.value != null) {
+      params.class_id = filterClassId.value
+    }
+    const data = await api.students.list(params)
     students.value = (data?.data || []).map(s => ({ id: s.id, name: s.name }))
   } catch (e) {
     students.value = []
@@ -97,6 +128,9 @@ const loadDetails = async () => {
   loading.value = true
   try {
     const params = { term_id: filterTermId.value, order: filterOrder.value }
+    if (filterClassId.value != null) {
+      params.class_id = filterClassId.value
+    }
     if (filterStudentId.value != null) {
       params.student_id = filterStudentId.value
     }
@@ -113,9 +147,24 @@ const goBack = () => {
 }
 
 onMounted(async () => {
-  await loadTerms()
+  await Promise.all([loadTerms(), loadClasses()])
   await loadStudents()
   await loadDetails()
+  inited = true
+})
+
+// 筛选条件变化后自动重新查询
+let inited = false
+// 班级切换：重新加载该班学生选项并刷新明细
+watch(filterClassId, () => {
+  if (!inited) return
+  loadStudents()
+  loadDetails()
+})
+// 学期/排序/学生筛选变化：刷新明细
+watch([filterTermId, filterOrder, filterStudentId], () => {
+  if (!inited) return
+  loadDetails()
 })
 </script>
 

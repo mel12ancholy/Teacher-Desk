@@ -76,7 +76,7 @@ class Subject(Base):
     __tablename__ = "subjects"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
+    name = Column(String, nullable=False, unique=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     scores = relationship("Score", back_populates="subject")
@@ -350,3 +350,38 @@ class DetailConductScore(Base):
 
     student = relationship("Student", backref="conduct_details")
     operator = relationship("User", backref="conduct_operations")
+
+
+class Teacher(Base):
+    """任课教师"""
+    __tablename__ = "teachers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    teacher_name = Column(String, nullable=False)
+    course = Column(String, nullable=True)
+    phone = Column(String, nullable=True)
+    employment_status = Column(String, nullable=False, default="在职")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ClassSubject(Base):
+    """班级科目配置（班级 + 标准科目 唯一）"""
+    __tablename__ = "class_subjects"
+
+    id = Column(Integer, primary_key=True, index=True)
+    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
+    subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False)
+    teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=True)
+    is_teaching = Column(Boolean, nullable=False, default=True)
+    is_score_related = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    class_obj = relationship("Class", backref="class_subjects")
+    subject = relationship("Subject", backref="class_subjects")
+    teacher = relationship("Teacher", backref="class_subjects")
+
+    __table_args__ = (
+        UniqueConstraint('class_id', 'subject_id', name='uq_class_subject'),
+    )

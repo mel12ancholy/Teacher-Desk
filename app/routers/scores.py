@@ -3,12 +3,24 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
 from app.database import get_db
-from app.models import User, Score, Student, Subject, Class
+from app.models import User, Score, Student, Subject, Class, ClassSubject
 from app.schemas import ScoreCreate, ScoreUpdate, ScoreResponse, ScoreListResponse
 from app.auth import get_current_active_user
 from app.routers.classes import get_accessible_class_ids
 
 router = APIRouter(prefix="/api/scores", tags=["成绩管理"])
+
+
+def _check_subject_score_config(class_id: int, subject_id: int, db: Session):
+    """成绩联动校验：只有班级科目配置中 is_score_related=True 的科目才能参与成绩管理"""
+    cs = db.query(ClassSubject).filter(
+        ClassSubject.class_id == class_id,
+        ClassSubject.subject_id == subject_id
+    ).first()
+    if not cs:
+        raise HTTPException(status_code=400, detail="该班级未配置此科目，请先在科目管理中配置")
+    if not cs.is_score_related:
+        raise HTTPException(status_code=400, detail="该科目未开启「是否成绩相关」，不能参与成绩管理")
 
 @router.get("", response_model=ScoreListResponse)
 def get_scores(
@@ -79,7 +91,10 @@ def create_score(
     subject = db.query(Subject).filter(Subject.id == score_data.subject_id).first()
     if not subject:
         raise HTTPException(status_code=400, detail="科目不存在")
-    
+
+    # 成绩联动：仅 is_score_related=True 的科目可录入成绩
+    _check_subject_score_config(score_data.class_id, score_data.subject_id, db)
+
     score = Score(
         student_id=score_data.student_id,
         subject_id=score_data.subject_id,
@@ -276,7 +291,19 @@ async def create_scores_batch(
         if not subject:
             errors.append(f"第{i+1}行: 科目不存在")
             continue
-        
+
+        # 成绩联动：仅 is_score_related=True 的科目可导入成绩
+        cs = db.query(ClassSubject).filter(
+            ClassSubject.class_id == class_id,
+            ClassSubject.subject_id == subject_id
+        ).first()
+        if not cs:
+            errors.append(f"第{i+1}行: 该班级未配置科目「{subject.name}」，请先在科目管理中配置")
+            continue
+        if not cs.is_score_related:
+            errors.append(f"第{i+1}行: 科目「{subject.name}」未开启「是否成绩相关」，不能导入成绩")
+            continue
+
         score_value = score_data.get("score")
         try:
             score_value = float(score_value)

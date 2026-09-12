@@ -233,9 +233,18 @@ const initPage = async () => {
 }
 
 const handleClassChange = async () => {
+  // 切换班级：保持用户选择的 classId 不被覆盖，仅重载该班级的学生与座位数据
   selectedHistoryDate.value = ''
   viewingHistory.value = false
-  await initPage()
+  loading.value = true
+  try {
+    await loadTodayChart()
+    await loadHistoryDates()
+  } catch (e) {
+    console.error('切换班级加载失败:', e)
+  } finally {
+    loading.value = false
+  }
 }
 
 // ========== 拖拽 ==========

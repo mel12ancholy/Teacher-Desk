@@ -3,6 +3,12 @@
     <el-card shadow="never" class="filter-card">
       <div class="filter-bar">
         <div class="filter-item">
+          <span class="filter-label">班级：</span>
+          <el-select v-model="filterClassId" style="width: 160px" placeholder="选择班级">
+            <el-option v-for="c in classes" :key="c.id" :label="c.name" :value="c.id" />
+          </el-select>
+        </div>
+        <div class="filter-item">
           <span class="filter-label">学期：</span>
           <el-select v-model="filterTermId" style="width: 180px" placeholder="选择学期">
             <el-option v-for="t in terms" :key="t.id" :label="t.name" :value="t.id" />
@@ -115,17 +121,21 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '@/api'
+import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
+const userStore = useUserStore()
 
+const classes = ref([])
 const terms = ref([])
 const summaries = ref([])
 const loading = ref(false)
 
+const filterClassId = ref(null)
 const filterTermId = ref(null)
 const filterSortBy = ref('name')
 const filterOrder = ref('asc')
@@ -168,14 +178,29 @@ const loadTerms = async () => {
   }
 }
 
+const loadClasses = async () => {
+  const data = await api.classes.list()
+  classes.value = data || []
+  // 单班级用户默认本班；多班级用户默认第一个班级
+  if (classes.value.length) {
+    const own = userStore.classId
+    filterClassId.value = classes.value.some(c => c.id === own) ? own : classes.value[0].id
+  }
+}
+
 const loadSummary = async () => {
   if (filterTermId.value == null) {
     ElMessage.warning('请先选择学期')
     return
   }
+  if (filterClassId.value == null) {
+    ElMessage.warning('请先选择班级')
+    return
+  }
   loading.value = true
   try {
     const data = await api.conduct.getSummary({
+      class_id: filterClassId.value,
       term_id: filterTermId.value,
       sort_by: filterSortBy.value,
       order: filterOrder.value
@@ -192,6 +217,7 @@ const loadDetails = async (studentId) => {
   detailsLoading.value = true
   try {
     const data = await api.conduct.getDetails({
+      class_id: filterClassId.value,
       term_id: filterTermId.value,
       student_id: studentId,
       order: 'desc'
@@ -285,15 +311,24 @@ const handleDeleteDetail = async (row) => {
 }
 
 const goDetailsPage = () => {
-  router.push({
-    path: '/conduct-details',
-    query: filterTermId.value != null ? { term_id: filterTermId.value } : {}
-  })
+  const query = {}
+  if (filterTermId.value != null) query.term_id = filterTermId.value
+  if (filterClassId.value != null) query.class_id = filterClassId.value
+  router.push({ path: '/conduct-details', query })
 }
 
 onMounted(async () => {
-  await loadTerms()
+  await Promise.all([loadTerms(), loadClasses()])
   await loadSummary()
+  inited = true
+})
+
+// 班级/学期/排序变化后自动重新查询，与换座位页行为一致
+let inited = false
+watch([filterClassId, filterTermId, filterSortBy, filterOrder], () => {
+  if (!inited) return
+  if (filterClassId.value == null || filterTermId.value == null) return
+  loadSummary()
 })
 </script>
 

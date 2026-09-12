@@ -470,6 +470,66 @@ class SystemSettingsResponse(BaseModel):
     use_bing_background: bool
 
 
+# ==================== 任课教师 ====================
+
+class TeacherCreate(BaseModel):
+    teacher_name: str
+    course: Optional[str] = None
+    phone: Optional[str] = None
+    employment_status: str = "在职"
+
+class TeacherUpdate(BaseModel):
+    teacher_name: Optional[str] = None
+    course: Optional[str] = None
+    phone: Optional[str] = None
+    employment_status: Optional[str] = None
+
+class TeacherResponse(BaseModel):
+    id: int
+    teacher_name: str
+    course: Optional[str] = None
+    phone: Optional[str] = None
+    employment_status: str
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ==================== 班级科目配置 ====================
+
+class ClassSubjectCreate(BaseModel):
+    class_id: int
+    subject_id: int
+    teacher_id: Optional[int] = None
+    is_teaching: bool = True
+    is_score_related: bool = True
+
+class ClassSubjectUpdate(BaseModel):
+    teacher_id: Optional[int] = None
+    is_teaching: Optional[bool] = None
+    is_score_related: Optional[bool] = None
+
+class ClassSubjectResponse(BaseModel):
+    id: int
+    class_id: int
+    class_name: Optional[str] = None
+    subject_id: int
+    subject_name: Optional[str] = None
+    teacher_id: Optional[int] = None
+    teacher_name: Optional[str] = None
+    teacher_phone: Optional[str] = None
+    teacher_status: Optional[str] = None
+    is_teaching: bool
+    is_score_related: bool
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 class HomeworkBase(BaseModel):
     title: str
     content: Optional[str] = None

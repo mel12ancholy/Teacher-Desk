@@ -74,7 +74,18 @@ export default {
   subjects: {
     list: () => api.get('/subjects'),
     create: (data) => api.post('/subjects', data),
-    delete: (id) => api.delete(`/subjects/${id}`)
+    delete: (id) => api.delete(`/subjects/${id}`),
+    getClassSubjects: (classId) => api.get(`/subjects/class/${classId}`),
+    createClassSubject: (data) => api.post('/subjects/class', data),
+    updateClassSubject: (id, data) => api.put(`/subjects/class/${id}`, data),
+    deleteClassSubject: (id) => api.delete(`/subjects/class/${id}`)
+  },
+  teachers: {
+    list: (params) => api.get('/teachers', { params }),
+    get: (id) => api.get(`/teachers/${id}`),
+    create: (data) => api.post('/teachers', data),
+    update: (id, data) => api.put(`/teachers/${id}`, data),
+    delete: (id) => api.delete(`/teachers/${id}`)
   },
   scores: {
     list: (params) => api.get('/scores', { params }),

@@ -1,9 +1,33 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import engine, Base
-from app.routers import auth, classes, students, scores, attendance, dashboard, subjects, users, semesters, logs, points, settings, homework, notifications, parent, analytics, seating, conduct
+from app.database import engine, Base, SessionLocal
+from app.models import Subject
+from app.routers import auth, classes, students, scores, attendance, dashboard, subjects, users, semesters, logs, points, settings, homework, notifications, parent, analytics, seating, conduct, teachers
 
 Base.metadata.create_all(bind=engine)
+
+
+def seed_standard_subjects():
+    """初始化标准科目底表：仅补充缺失的标准科目，不改动已有数据"""
+    standard_subjects = ["语文", "数学", "英语", "生物", "地理", "道德与法治", "历史", "体", "音", "美", "信", "口", "书"]
+    db = SessionLocal()
+    try:
+        existing = {s.name for s in db.query(Subject).all()}
+        added = False
+        for name in standard_subjects:
+            if name not in existing:
+                db.add(Subject(name=name))
+                added = True
+        if added:
+            db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"初始化标准科目失败: {e}")
+    finally:
+        db.close()
+
+
+seed_standard_subjects()
 
 app = FastAPI(
     title="班级管理系统 API",
@@ -37,6 +61,7 @@ app.include_router(parent.router)
 app.include_router(analytics.router)
 app.include_router(seating.router)
 app.include_router(conduct.router)
+app.include_router(teachers.router)
 
 @app.get("/")
 def root():

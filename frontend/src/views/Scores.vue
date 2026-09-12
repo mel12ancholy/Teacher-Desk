@@ -7,7 +7,7 @@
           <el-option v-for="c in classes" :key="c.id" :label="c.name" :value="c.id" />
         </el-select>
         <el-select v-model="filterSubjectId" placeholder="选择科目" clearable style="width: 150px; margin-right: 10px;" @change="loadScores">
-          <el-option v-for="s in subjects" :key="s.id" :label="s.name" :value="s.id" />
+          <el-option v-for="s in filterSubjectOptions" :key="s.id" :label="s.name" :value="s.id" />
         </el-select>
         <el-select v-model="filterSemester" placeholder="选择学期" clearable style="width: 120px; margin-right: 10px;" @change="loadScores">
           <el-option v-for="s in semesters" :key="s.id" :label="s.name" :value="s.name" />
@@ -110,8 +110,8 @@
           </el-select>
         </el-form-item>
         <el-form-item label="科目" prop="subject_id">
-          <el-select v-model="form.subject_id" placeholder="选择科目" style="width: 100%;">
-            <el-option v-for="s in subjects" :key="s.id" :label="s.name" :value="s.id" />
+          <el-select v-model="form.subject_id" placeholder="选择科目" style="width: 100%;" :disabled="!form.student_id">
+            <el-option v-for="s in formSubjectOptions" :key="s.id" :label="s.name" :value="s.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="成绩" prop="score">
@@ -152,23 +152,18 @@
       <div style="margin-bottom: 15px;">
         <el-alert title="导入说明" type="info" :closable="false">
           <ol style="margin: 10px 0 0 20px; padding: 0;">
-            <li>请先<strong>下载模板</strong>获取Excel文件</li>
-            <li>按照模板格式填写成绩信息</li>
-            <li>学号和科目必须正确填写</li>
+            <li>请先<strong>选择班级</strong>，再<strong>下载模板</strong>（模板列由该班级「成绩相关」的科目动态生成）</li>
+            <li>按模板格式填写学号和各科目成绩</li>
             <li>成绩必须在0-100之间</li>
-            <li>选择班级、科目、学期后，上传文件并点击"导入"</li>
+            <li>Excel 中的等级列（如「语等」）、总分、总等、综等非成绩相关列会自动忽略</li>
+            <li>选择班级、考试类型、学期后，上传文件并点击"导入"</li>
           </ol>
         </el-alert>
       </div>
       <el-form :model="batchForm" label-width="100px">
         <el-form-item label="选择班级">
-          <el-select v-model="batchForm.class_id" placeholder="选择班级" style="width: 100%;">
+          <el-select v-model="batchForm.class_id" placeholder="选择班级" style="width: 100%;" @change="handleBatchClassChange">
             <el-option v-for="c in classes" :key="c.id" :label="c.name" :value="c.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="选择科目">
-          <el-select v-model="batchForm.subject_id" placeholder="选择科目" style="width: 100%;">
-            <el-option v-for="s in subjects" :key="s.id" :label="s.name" :value="s.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="考试类型">
@@ -281,7 +276,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, nextTick, watch } from 'vue'
+import { ref, reactive, computed, onMounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, UploadFilled, Upload, DataAnalysis, Download } from '@element-plus/icons-vue'
@@ -305,6 +300,9 @@ const showBatchDialog = ref(false)
 const batchLoading = ref(false)
 const uploadRef = ref(null)
 
+// 班级科目配置缓存：classId -> 配置列表（成绩联动数据源）
+const classSubjectsCache = ref({})
+
 const filterClassId = ref(null)
 const filterSubjectId = ref(null)
 const filterSemester = ref('')
@@ -324,12 +322,44 @@ const form = reactive({
 
 const batchForm = reactive({
   class_id: null,
-  subject_id: null,
   exam_type: '期中考试',
   exam_date: null,
   semester: '',
   scoreData: '',
   scoreList: []
+})
+
+// 确保指定班级的科目配置已加载（带缓存）
+const ensureClassSubjects = async (classId) => {
+  if (!classId) return []
+  if (!classSubjectsCache.value[classId]) {
+    try {
+      classSubjectsCache.value[classId] = (await api.subjects.getClassSubjects(classId)) || []
+    } catch (e) {
+      classSubjectsCache.value[classId] = []
+    }
+  }
+  return classSubjectsCache.value[classId]
+}
+
+// 指定班级的成绩相关科目（id/name）；未指定班级时回退为全部科目（兼容旧数据展示）
+const scoreSubjectsFor = (classId) => {
+  if (!classId) return subjects.value
+  const list = classSubjectsCache.value[classId] || []
+  return list.filter(cs => cs.is_score_related).map(cs => ({
+    id: cs.subject_id,
+    name: cs.subject_name
+  }))
+}
+
+// 顶部筛选科目选项：跟随所选班级
+const filterSubjectOptions = computed(() => scoreSubjectsFor(filterClassId.value))
+
+// 录入弹窗科目选项：跟随所选学生的班级
+const formSubjectOptions = computed(() => {
+  const student = students.value.find(s => s.id === form.student_id)
+  if (!student) return []
+  return scoreSubjectsFor(student.class_id)
 })
 
 const rules = {
@@ -693,6 +723,12 @@ const calculateStudentRanking = () => {
 const loadScores = async () => {
   loading.value = true
   try {
+    // 班级切换后联动加载该班级科目配置，并清空失效的科目筛选
+    if (filterClassId.value) {
+      await ensureClassSubjects(filterClassId.value)
+      const valid = scoreSubjectsFor(filterClassId.value).some(s => s.id === filterSubjectId.value)
+      if (!valid) filterSubjectId.value = null
+    }
     const data = await api.scores.list({
       class_id: filterClassId.value,
       subject_id: filterSubjectId.value,
@@ -723,8 +759,20 @@ const handleFileChange = (uploadFile) => {
 
   if (fileExt === '.xlsx' || fileExt === '.xls') {
     const reader = new FileReader()
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
+        if (!batchForm.class_id) {
+          ElMessage.warning('请先选择班级再上传文件')
+          return
+        }
+        // 确保该班级科目配置已加载（成绩相关科目为合法列）
+        await ensureClassSubjects(batchForm.class_id)
+        const scoreSubjects = scoreSubjectsFor(batchForm.class_id)
+        if (!scoreSubjects.length) {
+          ElMessage.warning('该班级没有「成绩相关」的科目，请先在科目管理中配置')
+          return
+        }
+
         const data = new Uint8Array(e.target.result)
         const workbook = XLSX.read(data, { type: 'array' })
         const firstSheetName = workbook.SheetNames[0]
@@ -733,17 +781,47 @@ const handleFileChange = (uploadFile) => {
 
         if (jsonData.length > 1) {
           const header = jsonData[0].map(h => String(h).trim())
+
+          const noIndex = header.indexOf('学号')
+          if (noIndex < 0) {
+            ElMessage.error('模板中缺少「学号」列，请重新下载模板')
+            return
+          }
+
+          // 科目列 = 表头中能匹配到该班级「成绩相关」科目的列
+          // 其他列（姓名/等级列/总分/总等/综等）自动忽略
+          const subjectColumns = []
+          scoreSubjects.forEach(s => {
+            const idx = header.indexOf(s.name)
+            if (idx >= 0) subjectColumns.push({ index: idx, subject_id: s.id, name: s.name })
+          })
+          if (!subjectColumns.length) {
+            ElMessage.error('未匹配到任何「成绩相关」科目列，请按模板填写后重新上传')
+            return
+          }
+
           const rows = jsonData.slice(1).filter(row => row.some(cell => cell !== undefined && cell !== null && cell !== ''))
 
-          batchForm.scoreList = rows.map(row => {
-                const getValue = (index) => row[index] !== undefined ? String(row[index]).trim() : ''
-                const studentNo = getValue(header.indexOf('学号'))
-
-                return {
+          const scoreList = []
+          rows.forEach(row => {
+            const studentNo = row[noIndex] !== undefined ? String(row[noIndex]).trim() : ''
+            if (!studentNo) return
+            subjectColumns.forEach(col => {
+              const cell = row[col.index]
+              if (cell === undefined || cell === null || String(cell).trim() === '') return
+              const score = parseFloat(cell)
+              if (!isNaN(score)) {
+                scoreList.push({
                   student_no: studentNo,
-                  score: parseFloat(getValue(header.indexOf('成绩'))) || 0
-                }
-              }).filter(s => s.student_no)
+                  subject_id: col.subject_id,
+                  subject_name: col.name,
+                  score
+                })
+              }
+            })
+          })
+
+          batchForm.scoreList = scoreList
 
           const csvLines = rows.map(row => {
             return header.map((col, i) => {
@@ -753,7 +831,8 @@ const handleFileChange = (uploadFile) => {
           })
           batchForm.scoreData = csvLines.join('\n')
 
-          ElMessage.success(`Excel文件解析成功，共${batchForm.scoreList.length}条数据`)
+          const subjectNames = [...new Set(subjectColumns.map(c => c.name))]
+          ElMessage.success(`解析成功：${rows.length} 行，匹配科目列 [${subjectNames.join('、')}]，共 ${scoreList.length} 条成绩数据`)
         } else {
           ElMessage.warning('Excel文件中没有数据')
         }
@@ -768,28 +847,36 @@ const handleFileChange = (uploadFile) => {
   }
 }
 
-const downloadTemplate = () => {
+const downloadTemplate = async () => {
+  if (!batchForm.class_id) {
+    ElMessage.warning('请先选择班级，模板科目列随班级科目配置生成')
+    return
+  }
+  await ensureClassSubjects(batchForm.class_id)
+  const scoreSubjects = scoreSubjectsFor(batchForm.class_id)
+  if (!scoreSubjects.length) {
+    ElMessage.warning('该班级没有「成绩相关」的科目，请先在科目管理中配置')
+    return
+  }
+
+  // 模板列：学号 + 该班级全部成绩相关科目（总分/总等/综/等级列不属于成绩科目，不出现在模板中）
   const data = [
-    ['学号', '成绩'],
-    ['1', '85'],
-    ['2', '90'],
-    ['3', '78']
+    ['学号', ...scoreSubjects.map(s => s.name)],
+    ['1', ...scoreSubjects.map(() => '')],
+    ['2', ...scoreSubjects.map(() => '')]
   ]
 
   const ws = XLSX.utils.aoa_to_sheet(data)
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, '成绩信息')
 
-  XLSX.writeFile(wb, '成绩导入模板.xlsx')
+  const className = classes.value.find(c => c.id === batchForm.class_id)?.name || batchForm.class_id
+  XLSX.writeFile(wb, `成绩导入模板_${className}.xlsx`)
 }
 
 const handleBatchImport = async () => {
   if (!batchForm.class_id) {
     ElMessage.warning('请选择班级')
-    return
-  }
-  if (!batchForm.subject_id) {
-    ElMessage.warning('请选择科目')
     return
   }
   if (!batchForm.semester) {
@@ -806,7 +893,7 @@ const handleBatchImport = async () => {
   const scoresList = batchForm.scoreList.map(s => ({
     student_no: s.student_no,
     class_id: batchForm.class_id,
-    subject_id: batchForm.subject_id,
+    subject_id: s.subject_id,
     score: s.score,
     exam_type: batchForm.exam_type || '期中考试',
     exam_date: batchForm.exam_date,
@@ -841,7 +928,6 @@ const handleBatchImport = async () => {
     batchForm.scoreData = ''
     batchForm.scoreList = []
     batchForm.class_id = null
-    batchForm.subject_id = null
     batchForm.semester = ''
     loadScores()
   } catch (e) {
@@ -929,6 +1015,26 @@ const handleSubmit = async () => {
 const formatDate = (dateStr) => {
   if (!dateStr) return '-'
   return new Date(dateStr).toLocaleString('zh-CN')
+}
+
+// 录入弹窗：选择学生后联动加载其班级的成绩相关科目，并清空失效的科目选择
+watch(() => form.student_id, async (newId) => {
+  if (isEdit.value || !newId) return
+  const student = students.value.find(s => s.id === newId)
+  if (student?.class_id) {
+    await ensureClassSubjects(student.class_id)
+    const valid = scoreSubjectsFor(student.class_id).some(s => s.id === form.subject_id)
+    if (!valid) form.subject_id = null
+  }
+})
+
+// 批量导入：切换班级后清空已解析的文件数据（模板列随班级变化）
+const handleBatchClassChange = async () => {
+  batchForm.scoreData = ''
+  batchForm.scoreList = []
+  if (batchForm.class_id) {
+    await ensureClassSubjects(batchForm.class_id)
+  }
 }
 
 watch(() => showAnalysisDialog.value, (newVal) => {

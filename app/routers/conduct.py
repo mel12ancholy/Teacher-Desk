@@ -72,16 +72,24 @@ def _recompute_summary(db: Session, student_id: int, term_id: int):
 @router.get("/summary", response_model=List[ConductSummaryResponse])
 def get_conduct_summary(
     term_id: int,
+    class_id: Optional[int] = Query(None, description="按班级筛选"),
     sort_by: str = Query("name", pattern="^(name|score)$"),
     order: str = Query("asc", pattern="^(asc|desc)$"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """查询学生超行分汇总（按 student + term 判断，仅补充缺失的汇总记录）"""
+    """查询学生超行分汇总（班级 + 学期，仅补充缺失的汇总记录，不重复插入）"""
     _check_term_exists(term_id, db)
 
     class_ids = get_accessible_class_ids(current_user, db)
-    students = db.query(Student).filter(Student.class_id.in_(class_ids)).all() if class_ids else []
+    if not class_ids:
+        return []
+    if class_id is not None:
+        if class_id not in class_ids:
+            raise HTTPException(status_code=403, detail="无权访问该班级")
+        class_ids = [class_id]
+
+    students = db.query(Student).filter(Student.class_id.in_(class_ids)).all()
     if not students:
         return []
 
@@ -123,20 +131,30 @@ def get_conduct_summary(
 def get_conduct_details(
     term_id: int,
     student_id: Optional[int] = None,
+    class_id: Optional[int] = Query(None, description="按班级筛选"),
     order: str = Query("asc", pattern="^(asc|desc)$"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """查询超行分明细（可按学生过滤），仅限当前用户管理的学生"""
+    """查询超行分明细（班级 + 学期，可按学生过滤），仅限当前用户管理的学生"""
     _check_term_exists(term_id, db)
     accessible_ids = _get_accessible_student_ids(current_user, db)
-
-    query = db.query(DetailConductScore).filter(
-        DetailConductScore.term_id == term_id
-    )
     if not accessible_ids:
         return []
-    query = query.filter(DetailConductScore.student_id.in_(accessible_ids))
+
+    query = db.query(DetailConductScore).filter(
+        DetailConductScore.term_id == term_id,
+        DetailConductScore.student_id.in_(accessible_ids)
+    )
+
+    if class_id is not None:
+        class_ids = get_accessible_class_ids(current_user, db)
+        if class_id not in class_ids:
+            raise HTTPException(status_code=403, detail="无权访问该班级")
+        # 通过学生表关联班级，避免冗余 class_id 列
+        query = query.join(Student, DetailConductScore.student_id == Student.id).filter(
+            Student.class_id == class_id
+        )
 
     if student_id is not None:
         if student_id not in accessible_ids:

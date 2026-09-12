@@ -398,6 +398,66 @@ class SystemSettingResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
+# ==================== 换座位 ====================
+
+class SeatingStudent(BaseModel):
+    student_id: Optional[int] = None
+    student_name: str
+    seat_row: Optional[int] = None
+    seat_column: Optional[int] = None
+
+class SeatingSaveRequest(BaseModel):
+    class_id: int
+    row_count: int
+    column_count: int
+    students: List[SeatingStudent]
+
+class SeatingChartResponse(BaseModel):
+    class_id: int
+    date: str
+    row_count: int
+    column_count: int
+    students: List[SeatingStudent]
+
+
+# ==================== 超行分 ====================
+
+class ConductSummaryResponse(BaseModel):
+    student_id: int
+    student_name: str
+    term_id: int
+    total_score: int
+
+    class Config:
+        from_attributes = True
+
+class ConductDetailCreate(BaseModel):
+    student_id: int
+    term_id: int
+    score: int
+    remark: Optional[str] = None
+    record_time: Optional[datetime] = None
+
+class ConductDetailUpdate(BaseModel):
+    score: Optional[int] = None
+    remark: Optional[str] = None
+    record_time: Optional[datetime] = None
+
+class ConductDetailResponse(BaseModel):
+    id: int
+    student_id: int
+    student_name: str
+    term_id: int
+    score: int
+    remark: Optional[str] = None
+    record_time: datetime
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
 class SystemSettingUpdate(BaseModel):
     setting_value: str
 

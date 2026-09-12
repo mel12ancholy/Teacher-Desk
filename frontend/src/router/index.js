@@ -32,6 +32,21 @@ const routes = [
         component: () => import('@/views/Students.vue')
       },
       {
+        path: 'seating',
+        name: 'Seating',
+        component: () => import('@/views/Seating.vue')
+      },
+      {
+        path: 'conduct-scores',
+        name: 'ConductScores',
+        component: () => import('@/views/ConductScores.vue')
+      },
+      {
+        path: 'conduct-details',
+        name: 'ConductDetails',
+        component: () => import('@/views/ConductDetails.vue')
+      },
+      {
         path: 'scores',
         name: 'Scores',
         component: () => import('@/views/Scores.vue')

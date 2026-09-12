@@ -45,6 +45,14 @@
           <el-icon><User /></el-icon>
           <template #title>学生管理</template>
         </el-menu-item>
+        <el-menu-item index="/seating">
+          <el-icon><Grid /></el-icon>
+          <template #title>换座位</template>
+        </el-menu-item>
+        <el-menu-item index="/conduct-scores">
+          <el-icon><Medal /></el-icon>
+          <template #title>超行分记录</template>
+        </el-menu-item>
         <el-menu-item index="/scores">
           <el-icon><Document /></el-icon>
           <template #title>成绩管理</template>
@@ -188,7 +196,9 @@ import {
   Expand,
   Fold,
   Setting,
-  Bell
+  Bell,
+  Grid,
+  Medal
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -204,6 +214,9 @@ const currentRouteName = computed(() => {
     '/dashboard': '数据仪表盘',
     '/classes': '班级管理',
     '/students': '学生管理',
+    '/seating': '换座位',
+    '/conduct-scores': '超行分记录',
+    '/conduct-details': '超行分明细',
     '/scores': '成绩管理',
     '/attendance': '考勤管理',
     '/rankings': '班级排名',

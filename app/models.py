@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Boolean, Enum as SQLEnum, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, Date, DateTime, Boolean, Enum as SQLEnum, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -281,3 +281,72 @@ class NotificationRead(Base):
 
     notification = relationship("Notification", backref="read_records")
     user = relationship("User", backref="notification_reads")
+
+
+class SeatingChart(Base):
+    """座位表（换座位）
+
+    每行表示某个学生在某一次座位安排中的位置。
+    一次座位安排 = (class_id, created_date) 对应的行集合。
+    student_id 为空表示该学生来自 Excel 导入（未写入学生主数据，仅保留姓名快照）。
+    seat_row / seat_column 为空表示该学生在本次安排中未排座。
+    """
+    __tablename__ = "seating_chart"
+
+    id = Column(Integer, primary_key=True, index=True)
+    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=True)
+    student_name = Column(String, nullable=False)
+    row_count = Column(Integer, nullable=False)
+    column_count = Column(Integer, nullable=False)
+    seat_row = Column(Integer, nullable=True)
+    seat_column = Column(Integer, nullable=True)
+    created_date = Column(Date, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    class_obj = relationship("Class", backref="seating_charts")
+    creator = relationship("User", backref="seating_charts")
+
+    __table_args__ = (
+        UniqueConstraint('class_id', 'created_date', 'student_id', name='uq_seating_class_date_student'),
+    )
+
+
+class SummaryConductScore(Base):
+    """超行分汇总表（学生 + 学期 唯一）"""
+    __tablename__ = "summary_conduct_scores"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
+    student_name = Column(String, nullable=False)
+    term_id = Column(Integer, ForeignKey("semesters.id"), nullable=False)
+    total_score = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    student = relationship("Student", backref="conduct_summaries")
+
+    __table_args__ = (
+        UniqueConstraint('student_id', 'term_id', name='uq_conduct_summary_student_term'),
+    )
+
+
+class DetailConductScore(Base):
+    """超行分明细表（具体加减分记录）"""
+    __tablename__ = "detail_conduct_scores"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
+    student_name = Column(String, nullable=False)
+    term_id = Column(Integer, ForeignKey("semesters.id"), nullable=False)
+    score = Column(Integer, nullable=False)
+    remark = Column(String, nullable=True)
+    record_time = Column(DateTime(timezone=True), nullable=False)
+    operator_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    student = relationship("Student", backref="conduct_details")
+    operator = relationship("User", backref="conduct_operations")

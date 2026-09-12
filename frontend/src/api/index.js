@@ -109,5 +109,18 @@ export default {
     getStudentAnalysis: (studentId, params) => api.get(`/analytics/student/${studentId}`, { params }),
     getClassAnalysis: (classId, params) => api.get(`/analytics/class/${classId}`, { params }),
     getComparison: (classId, params) => api.get('/analytics/comparison', { params })
+  },
+  seating: {
+    get: (classId, date) => api.get('/seating', { params: { class_id: classId, ...(date ? { date } : {}) } }),
+    save: (data) => api.post('/seating/save', data),
+    getDates: (classId) => api.get('/seating/dates', { params: { class_id: classId } }),
+    clear: (classId) => api.delete('/seating', { params: { class_id: classId } })
+  },
+  conduct: {
+    getSummary: (params) => api.get('/conduct/summary', { params }),
+    getDetails: (params) => api.get('/conduct/details', { params }),
+    createDetail: (data) => api.post('/conduct/details', data),
+    updateDetail: (id, data) => api.put(`/conduct/details/${id}`, data),
+    deleteDetail: (id) => api.delete(`/conduct/details/${id}`)
   }
 }

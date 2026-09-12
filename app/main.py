@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
-from app.routers import auth, classes, students, scores, attendance, dashboard, subjects, users, semesters, logs, points, settings, homework, notifications, parent, analytics
+from app.routers import auth, classes, students, scores, attendance, dashboard, subjects, users, semesters, logs, points, settings, homework, notifications, parent, analytics, seating, conduct
 
 Base.metadata.create_all(bind=engine)
 
@@ -35,6 +35,8 @@ app.include_router(homework.router)
 app.include_router(notifications.router)
 app.include_router(parent.router)
 app.include_router(analytics.router)
+app.include_router(seating.router)
+app.include_router(conduct.router)
 
 @app.get("/")
 def root():

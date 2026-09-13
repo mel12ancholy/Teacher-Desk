@@ -74,6 +74,7 @@ export default {
   subjects: {
     list: () => api.get('/subjects'),
     create: (data) => api.post('/subjects', data),
+    update: (id, data) => api.put(`/subjects/${id}`, data),
     delete: (id) => api.delete(`/subjects/${id}`),
     getClassSubjects: (classId) => api.get(`/subjects/class/${classId}`),
     createClassSubject: (data) => api.post('/subjects/class', data),
@@ -118,6 +119,7 @@ export default {
   },
   analytics: {
     getStudentAnalysis: (studentId, params) => api.get(`/analytics/student/${studentId}`, { params }),
+    getSubjectTrend: (params) => api.get('/analytics/subject-trend', { params }),
     getClassAnalysis: (classId, params) => api.get(`/analytics/class/${classId}`, { params }),
     getComparison: (classId, params) => api.get('/analytics/comparison', { params })
   },

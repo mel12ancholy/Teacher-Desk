@@ -166,6 +166,8 @@ class ScoreUpdate(BaseModel):
     score: Optional[float] = None
     exam_type: Optional[str] = None
     exam_date: Optional[str] = None
+    semester: Optional[str] = None
+    subject_id: Optional[int] = None
 
 class ScoreResponse(ScoreBase):
     id: int
@@ -173,6 +175,7 @@ class ScoreResponse(ScoreBase):
     subject_name: Optional[str] = None
     class_name: Optional[str] = None
     exam_date: Optional[datetime] = None
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

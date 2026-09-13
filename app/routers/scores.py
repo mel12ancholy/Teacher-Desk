@@ -137,19 +137,28 @@ def update_score(
     if score.class_id not in class_ids:
         raise HTTPException(status_code=403, detail="无权修改该成绩")
     
+    if score_data.subject_id is not None and score_data.subject_id != score.subject_id:
+        # 换科目时同样要走班级科目配置校验
+        _check_subject_score_config(score.class_id, score_data.subject_id, db)
+        score.subject_id = score_data.subject_id
     if score_data.score is not None:
         score.score = score_data.score
     if score_data.exam_type is not None:
         score.exam_type = score_data.exam_type
     if score_data.semester is not None:
         score.semester = score_data.semester
-    
+    if score_data.exam_date is not None:
+        try:
+            score.exam_date = datetime.fromisoformat(score_data.exam_date)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="考试日期格式错误")
+
     db.commit()
     db.refresh(score)
-    
+
     student = db.query(Student).filter(Student.id == score.student_id).first()
     subject = db.query(Subject).filter(Subject.id == score.subject_id).first()
-    
+
     return ScoreResponse(
         id=score.id,
         student_id=score.student_id,
@@ -157,6 +166,7 @@ def update_score(
         class_id=score.class_id,
         score=score.score,
         exam_type=score.exam_type,
+        exam_date=score.exam_date,
         semester=score.semester,
         created_at=score.created_at,
         student_name=student.name if student else None,

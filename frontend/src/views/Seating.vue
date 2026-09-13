@@ -57,6 +57,7 @@
           </div>
         </template>
         <div class="seat-area">
+          <div class="podium">讲台</div>
           <div class="seat-grid" :style="gridStyle">
             <template v-for="r in displayRowCount" :key="r">
               <div v-for="c in displayColumnCount" :key="`${r}-${c}`" class="seat-cell"
@@ -73,7 +74,6 @@
               </div>
             </template>
           </div>
-          <div class="podium">讲台</div>
         </div>
       </el-card>
     </div>
@@ -405,6 +405,18 @@ const triggerImport = () => {
   fileInputRef.value?.click()
 }
 
+// 当前班级学生姓名 -> 学号映射（导入名单时尽量关联真实学生）
+const buildClassNameMap = async () => {
+  const map = {}
+  try {
+    const data = await api.students.list({ class_id: classId.value, page_size: 1000 })
+    for (const s of data?.data || []) map[s.name] = s.id
+  } catch (e) {
+    console.error('加载班级学生失败:', e)
+  }
+  return map
+}
+
 const handleFileChange = async (event) => {
   const file = event.target.files?.[0]
   event.target.value = ''
@@ -424,7 +436,62 @@ const handleFileChange = async (event) => {
       return
     }
 
-    // 兼容简单的一列姓名数据：取每行第一个非空单元格
+    // 本项目导出的座位表格式：数据行第一列为「第N行」，首行为列头（第1列、第2列…）
+    const gridRows = rows.filter(r =>
+      Array.isArray(r) && r.length > 0 && /^第\d+行$/.test(String(r[0] ?? '').trim())
+    )
+
+    const nameMap = await buildClassNameMap()
+
+    if (gridRows.length > 0) {
+      // ---- 座位表模式：还原行列尺寸，并将学生放回对应 x*y 座位 ----
+      const seatEntries = []
+      const seen = new Set()
+      let maxRow = 0
+      let maxCol = 0
+      for (const row of gridRows) {
+        const r = parseInt(/^第(\d+)行$/.exec(String(row[0]).trim())[1], 10)
+        maxRow = Math.max(maxRow, r)
+        for (let c = 1; c < row.length; c++) {
+          const name = row[c] != null ? String(row[c]).trim() : ''
+          if (!name || seen.has(name)) continue
+          seen.add(name)
+          maxCol = Math.max(maxCol, c)
+          seatEntries.push({ row: r, col: c, name })
+        }
+      }
+      if (!seatEntries.length) {
+        ElMessage.error('未从座位表格式 Excel 中读取到学生姓名')
+        return
+      }
+
+      // 行列限制与页面/后端一致（4~12 行、4~16 列），越界座位上的学生进入未排座区
+      rowCount.value = Math.min(Math.max(maxRow, MIN_ROWS), MAX_ROWS)
+      columnCount.value = Math.min(Math.max(maxCol, MIN_COLUMNS), MAX_COLUMNS)
+
+      const seated = []
+      const unseated = []
+      for (const e of seatEntries) {
+        const stu = { student_id: nameMap[e.name] ?? null, student_name: e.name }
+        if (e.row <= rowCount.value && e.col <= columnCount.value) {
+          seated.push({ ...stu, seat_row: e.row, seat_column: e.col })
+        } else {
+          unseated.push(stu)
+        }
+      }
+      seatStudents.value = seated
+      unseatedStudents.value = unseated
+
+      const linked = seatEntries.filter(e => nameMap[e.name] != null).length
+      ElMessage.success(
+        `成功导入 ${seatEntries.length} 名学生并还原到座位表（${rowCount.value}×${columnCount.value}）` +
+        (linked ? `，其中 ${linked} 人已匹配到班级学生` : '') +
+        (unseated.length ? `，${unseated.length} 人因超出当前行列进入未排座区` : '')
+      )
+      return
+    }
+
+    // ---- 简单名单模式：兼容一列姓名的数据，全部进入未排座区 ----
     const names = []
     const seen = new Set()
     let headerSkipped = false
@@ -448,8 +515,9 @@ const handleFileChange = async (event) => {
       ElMessage.error('未从 Excel 中读取到有效的学生姓名')
       return
     }
-    unseatedStudents.value = names.map(name => ({ student_id: null, student_name: name }))
-    ElMessage.success(`成功导入 ${names.length} 名学生（已自动去重、去除空行）`)
+    unseatedStudents.value = names.map(name => ({ student_id: nameMap[name] ?? null, student_name: name }))
+    const linked = names.filter(n => nameMap[n] != null).length
+    ElMessage.success(`成功导入 ${names.length} 名学生（已自动去重、去除空行${linked ? `，${linked} 人已匹配到班级学生` : ''}）`)
   } catch (e) {
     console.error('导入 Excel 失败:', e)
     ElMessage.error('Excel 文件解析失败，请检查文件格式')

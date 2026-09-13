@@ -65,7 +65,9 @@
           <el-input v-model="form.teacher_name" placeholder="请输入教师姓名" />
         </el-form-item>
         <el-form-item label="授课课程" prop="course">
-          <el-input v-model="form.course" placeholder="如: 数学（教师基础信息，科目配置时另行选择）" />
+          <el-select v-model="form.course" placeholder="选择标准科目（与科目管理联动）" style="width: 100%;" clearable filterable>
+            <el-option v-for="s in subjects" :key="s.id" :label="s.name" :value="s.name" />
+          </el-select>
         </el-form-item>
         <el-form-item label="电话" prop="phone">
           <el-input v-model="form.phone" placeholder="请输入联系电话" />
@@ -95,6 +97,7 @@ import { useUserStore } from '@/stores/user'
 const userStore = useUserStore()
 
 const teachers = ref([])
+const subjects = ref([])
 const loading = ref(false)
 const dialogVisible = ref(false)
 const isEdit = ref(false)
@@ -215,6 +218,7 @@ const formatDate = (dateStr) => {
 
 onMounted(() => {
   loadTeachers()
+  loadSubjects()
 })
 </script>
 

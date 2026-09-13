@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User, Subject, ClassSubject, Teacher, Score, Class, UserRole
 from app.schemas import (
-    SubjectCreate, SubjectResponse,
+    SubjectCreate, SubjectUpdate, SubjectResponse,
     ClassSubjectCreate, ClassSubjectUpdate, ClassSubjectResponse
 )
 from app.auth import get_current_active_user
@@ -86,6 +86,42 @@ def create_subject(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"创建科目失败: {str(e)}")
+    return subject
+
+
+@router.put("/{subject_id}", response_model=SubjectResponse)
+def update_subject(
+    subject_id: int,
+    data: SubjectUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """修改标准科目名称（仅管理员）；不能改成已存在的科目名。
+    成绩表和班级科目配置均通过 subject_id 外键关联，改名后所有引用处自动显示新名称。"""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="只有管理员可以修改科目")
+
+    subject = db.query(Subject).filter(Subject.id == subject_id).first()
+    if not subject:
+        raise HTTPException(status_code=404, detail="科目不存在")
+
+    name = (data.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="科目名称不能为空")
+    if name == subject.name:
+        return subject
+
+    existing = db.query(Subject).filter(Subject.name == name, Subject.id != subject_id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"科目「{name}」已存在，不能重命名为相同名称")
+
+    subject.name = name
+    try:
+        db.commit()
+        db.refresh(subject)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"修改科目失败: {str(e)}")
     return subject
 
 

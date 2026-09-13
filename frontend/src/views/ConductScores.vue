@@ -28,7 +28,6 @@
             <el-option label="降序" value="desc" />
           </el-select>
         </div>
-        <el-button type="primary" :loading="loading" @click="loadSummary">查询</el-button>
         <div class="filter-spacer"></div>
         <el-button type="success" plain @click="goDetailsPage">查看全部学生明细</el-button>
       </div>

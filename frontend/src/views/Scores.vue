@@ -33,28 +33,22 @@
 
     <div class="statistics-card" v-if="statisticsData">
       <el-row :gutter="20">
-        <el-col :span="6">
+        <el-col :span="8">
           <div class="stat-item">
             <div class="stat-label">平均分</div>
             <div class="stat-value">{{ statisticsData.average.toFixed(1) }}</div>
           </div>
         </el-col>
-        <el-col :span="6">
+        <el-col :span="8">
           <div class="stat-item">
             <div class="stat-label">最高分</div>
             <div class="stat-value success">{{ statisticsData.max }}</div>
           </div>
         </el-col>
-        <el-col :span="6">
+        <el-col :span="8">
           <div class="stat-item">
             <div class="stat-label">最低分</div>
             <div class="stat-value danger">{{ statisticsData.min }}</div>
-          </div>
-        </el-col>
-        <el-col :span="6">
-          <div class="stat-item">
-            <div class="stat-label">及格率</div>
-            <div class="stat-value">{{ statisticsData.passRate }}%</div>
           </div>
         </el-col>
       </el-row>
@@ -105,7 +99,7 @@
     <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑成绩' : '录入成绩'" width="600px">
       <el-form :model="form" :rules="rules" ref="formRef" label-width="100px">
         <el-form-item label="学生" prop="student_id">
-          <el-select v-model="form.student_id" placeholder="选择学生" style="width: 100%;" filterable>
+          <el-select v-model="form.student_id" placeholder="选择学生" style="width: 100%;" filterable :disabled="isEdit">
             <el-option v-for="s in students" :key="s.id" :label="`${s.name} (${s.class_name})`" :value="s.id" />
           </el-select>
         </el-form-item>
@@ -426,14 +420,11 @@ const calculateStatistics = () => {
   const average = scores_list.reduce((a, b) => a + b, 0) / scores_list.length
   const max = Math.max(...scores_list)
   const min = Math.min(...scores_list)
-  const passCount = scores_list.filter(s => s >= 60).length
-  const passRate = ((passCount / scores_list.length) * 100).toFixed(1)
-  
+
   statisticsData.value = {
     average,
     max,
-    min,
-    passRate
+    min
   }
   
   scoreDistribution.excellent = scores_list.filter(s => s >= 90).length
@@ -952,7 +943,7 @@ const handleAdd = () => {
   dialogVisible.value = true
 }
 
-const handleEdit = (row) => {
+const handleEdit = async (row) => {
   isEdit.value = true
   editingId.value = row.id
   Object.assign(form, {
@@ -961,10 +952,14 @@ const handleEdit = (row) => {
     class_id: row.class_id,
     score: row.score,
     exam_type: row.exam_type,
-    exam_date: row.exam_date,
+    exam_date: row.exam_date ? String(row.exam_date).slice(0, 19) : null,
     semester: row.semester
   })
   dialogVisible.value = true
+  // 编辑时联动加载该学生班级的成绩相关科目，保证科目下拉显示名称且可选
+  if (row.class_id) {
+    await ensureClassSubjects(row.class_id)
+  }
 }
 
 const handleDelete = async (row) => {
@@ -995,6 +990,7 @@ const handleSubmit = async () => {
     
     if (isEdit.value) {
       await api.scores.update(editingId.value, {
+        subject_id: form.subject_id,
         score: form.score,
         exam_type: form.exam_type,
         exam_date: form.exam_date,

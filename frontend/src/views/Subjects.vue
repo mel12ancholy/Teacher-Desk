@@ -93,8 +93,10 @@
       </template>
     </el-dialog>
 
-    <!-- 新增标准科目（仅管理员） -->
-    <el-dialog v-model="subjectDialogVisible" title="新增标准科目" width="400px">
+    <!-- 新增/编辑标准科目（仅管理员） -->
+    <el-dialog v-model="subjectDialogVisible" :title="isEditSubject ? '编辑标准科目' : '新增标准科目'" width="400px">
+      <el-alert v-if="isEditSubject" type="info" :closable="false" style="margin-bottom: 12px;"
+        title="成绩和班级科目配置通过科目ID关联，改名后所有引用处自动显示新名称" />
       <el-form :model="subjectForm" :rules="subjectRules" ref="subjectFormRef" label-width="90px">
         <el-form-item label="科目名称" prop="name">
           <el-input v-model="subjectForm.name" placeholder="如: 数学" />
@@ -105,6 +107,29 @@
         <el-button type="primary" :loading="subjectSaving" @click="handleSubjectSubmit">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 标准科目管理（仅管理员） -->
+    <div class="standard-card" v-if="userStore.isAdmin">
+      <div class="standard-header">
+        <h3 class="standard-title">标准科目管理（{{ subjects.length }}）</h3>
+        <span class="standard-tip">被成绩或班级科目配置引用的科目无法删除；改名后所有引用处自动更新</span>
+      </div>
+      <el-table :data="subjects" style="width: 100%" size="small">
+        <el-table-column prop="id" label="ID" width="70" />
+        <el-table-column prop="name" label="科目名称" min-width="140" />
+        <el-table-column label="创建时间" width="170">
+          <template #default="{ row }">
+            {{ formatDate(row.created_at) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="150" align="center">
+          <template #default="{ row }">
+            <el-button type="primary" size="small" @click="handleEditSubject(row)">编辑</el-button>
+            <el-button type="danger" size="small" @click="handleDeleteSubject(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
   </div>
 </template>
 
@@ -134,6 +159,8 @@ const formRef = ref(null)
 const subjectDialogVisible = ref(false)
 const subjectSaving = ref(false)
 const subjectFormRef = ref(null)
+const isEditSubject = ref(false)
+const editingSubjectRowId = ref(null)
 
 const form = reactive({
   subject_id: null,
@@ -158,14 +185,22 @@ const currentClassName = computed(() =>
   classes.value.find(c => c.id === (isEdit.value ? editingClassId.value : filterClassId.value))?.name || '-'
 )
 const editingClassId = ref(null)
+const editingSubjectId = ref(null)
 
 // 在职教师（科目配置仅允许选择在职教师）
 const activeTeachers = computed(() => teachers.value.filter(t => t.employment_status === '在职'))
 
-// 可配置科目 = 底表全部科目 - 该班级已配置科目
+// 可配置科目 = 底表全部科目 - 该班级已配置科目；编辑模式下需包含当前科目，保证显示科目名称
 const availableSubjects = computed(() => {
   const configured = new Set(classSubjects.value.map(cs => cs.subject_id))
-  return subjects.value.filter(s => !configured.has(s.id))
+  const list = subjects.value.filter(s => !configured.has(s.id))
+  if (isEdit.value && editingSubjectId.value != null) {
+    const current = subjects.value.find(s => s.id === editingSubjectId.value)
+    if (current && !list.some(s => s.id === current.id)) {
+      list.unshift(current)
+    }
+  }
+  return list
 })
 
 const loadClasses = async () => {
@@ -211,6 +246,7 @@ const handleEdit = (row) => {
   isEdit.value = true
   editingId.value = row.id
   editingClassId.value = row.class_id
+  editingSubjectId.value = row.subject_id
   Object.assign(form, {
     subject_id: row.subject_id,
     teacher_id: row.teacher_id,
@@ -274,20 +310,55 @@ const handleSubmit = async () => {
 }
 
 const handleAddSubject = () => {
+  isEditSubject.value = false
+  editingSubjectRowId.value = null
   subjectForm.name = ''
   subjectDialogVisible.value = true
+}
+
+const handleEditSubject = (row) => {
+  isEditSubject.value = true
+  editingSubjectRowId.value = row.id
+  subjectForm.name = row.name
+  subjectDialogVisible.value = true
+}
+
+const handleDeleteSubject = async (row) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除标准科目「${row.name}」吗？已被成绩数据或班级科目配置引用时删除将被拒绝。`,
+      '删除标准科目',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  try {
+    await api.subjects.delete(row.id)
+    ElMessage.success('标准科目删除成功')
+    await loadSubjects()
+    await loadClassSubjects()
+  } catch (e) {
+    console.error('删除标准科目失败:', e)
+  }
 }
 
 const handleSubjectSubmit = async () => {
   await subjectFormRef.value.validate()
   subjectSaving.value = true
   try {
-    await api.subjects.create({ name: subjectForm.name })
-    ElMessage.success('标准科目新增成功')
+    if (isEditSubject.value) {
+      await api.subjects.update(editingSubjectRowId.value, { name: subjectForm.name })
+      ElMessage.success('标准科目修改成功，相关成绩与配置将自动显示新名称')
+    } else {
+      await api.subjects.create({ name: subjectForm.name })
+      ElMessage.success('标准科目新增成功')
+    }
     subjectDialogVisible.value = false
     await loadSubjects()
+    await loadClassSubjects()
   } catch (e) {
-    console.error('新增标准科目失败:', e)
+    console.error('保存标准科目失败:', e)
   } finally {
     subjectSaving.value = false
   }
@@ -308,5 +379,33 @@ onMounted(async () => {
 <style scoped>
 .subjects {
   padding: 20px;
+}
+
+.standard-card {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  margin-top: 16px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+}
+
+.standard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.standard-title {
+  margin: 0;
+  font-size: 16px;
+  color: #303133;
+}
+
+.standard-tip {
+  font-size: 12px;
+  color: #909399;
 }
 </style>

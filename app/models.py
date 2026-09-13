@@ -385,3 +385,22 @@ class ClassSubject(Base):
     __table_args__ = (
         UniqueConstraint('class_id', 'subject_id', name='uq_class_subject'),
     )
+
+
+class PageAccessConfig(Base):
+    """页面访问配置（角色 + 页面 唯一）
+
+    控制各角色可见的前端页面：无记录 = 默认可见。
+    用于隐藏暂未完善的页面，待完善后由管理员开启。
+    """
+    __tablename__ = "page_access_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    role = Column(String, nullable=False)
+    page_path = Column(String, nullable=False)
+    is_visible = Column(Boolean, nullable=False, default=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('role', 'page_path', name='uq_page_access_role_path'),
+    )

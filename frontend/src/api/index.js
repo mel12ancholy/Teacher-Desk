@@ -135,5 +135,10 @@ export default {
     createDetail: (data) => api.post('/conduct/details', data),
     updateDetail: (id, data) => api.put(`/conduct/details/${id}`, data),
     deleteDetail: (id) => api.delete(`/conduct/details/${id}`)
+  },
+  pageAccess: {
+    getMy: () => api.get('/page-access/my'),
+    getAll: () => api.get('/page-access'),
+    batchUpdate: (data) => api.put('/page-access', data)
   }
 }

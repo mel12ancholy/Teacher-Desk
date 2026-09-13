@@ -37,73 +37,77 @@
           <el-icon><DataAnalysis /></el-icon>
           <template #title>数据仪表盘</template>
         </el-menu-item>
-        <el-menu-item index="/classes" v-if="userStore.isAdmin">
+        <el-menu-item index="/classes" v-if="userStore.isAdmin && userStore.isPageVisible('/classes')">
           <el-icon><School /></el-icon>
           <template #title>班级管理</template>
         </el-menu-item>
-        <el-menu-item index="/students">
+        <el-menu-item index="/students" v-if="userStore.isPageVisible('/students')">
           <el-icon><User /></el-icon>
           <template #title>学生管理</template>
         </el-menu-item>
-        <el-menu-item index="/seating">
+        <el-menu-item index="/seating" v-if="userStore.isPageVisible('/seating')">
           <el-icon><Grid /></el-icon>
           <template #title>换座位</template>
         </el-menu-item>
-        <el-menu-item index="/conduct-scores">
+        <el-menu-item index="/conduct-scores" v-if="userStore.isPageVisible('/conduct-scores')">
           <el-icon><Medal /></el-icon>
           <template #title>超行分记录</template>
         </el-menu-item>
-        <el-menu-item index="/scores">
+        <el-menu-item index="/scores" v-if="userStore.isPageVisible('/scores')">
           <el-icon><Document /></el-icon>
           <template #title>成绩管理</template>
         </el-menu-item>
-        <el-menu-item index="/attendance">
+        <el-menu-item index="/attendance" v-if="userStore.isPageVisible('/attendance')">
           <el-icon><Calendar /></el-icon>
           <template #title>考勤管理</template>
         </el-menu-item>
-        <el-menu-item index="/rankings">
+        <el-menu-item index="/rankings" v-if="userStore.isPageVisible('/rankings')">
           <el-icon><TrendCharts /></el-icon>
           <template #title>班级排名</template>
         </el-menu-item>
-        <el-menu-item index="/analysis">
+        <el-menu-item index="/analysis" v-if="userStore.isPageVisible('/analysis')">
           <el-icon><TrendCharts /></el-icon>
           <template #title>成绩分析</template>
         </el-menu-item>
-        <el-menu-item index="/users" v-if="userStore.isAdmin">
+        <el-menu-item index="/users" v-if="userStore.isAdmin && userStore.isPageVisible('/users')">
           <el-icon><UserFilled /></el-icon>
           <template #title>用户管理</template>
         </el-menu-item>
-        <el-menu-item index="/teachers">
+        <el-menu-item index="/teachers" v-if="userStore.isPageVisible('/teachers')">
           <el-icon><Avatar /></el-icon>
           <template #title>任课教师</template>
         </el-menu-item>
-        <el-menu-item index="/subjects">
+        <el-menu-item index="/subjects" v-if="userStore.isPageVisible('/subjects')">
           <el-icon><Reading /></el-icon>
           <template #title>科目管理</template>
         </el-menu-item>
-        <el-menu-item index="/semesters" v-if="userStore.isAdmin">
+        <el-menu-item index="/semesters" v-if="userStore.isAdmin && userStore.isPageVisible('/semesters')">
           <el-icon><Collection /></el-icon>
           <template #title>学期管理</template>
         </el-menu-item>
-        <el-menu-item index="/logs" v-if="userStore.isAdmin">
+        <el-menu-item index="/logs" v-if="userStore.isAdmin && userStore.isPageVisible('/logs')">
           <el-icon><Clock /></el-icon>
           <template #title>操作日志</template>
         </el-menu-item>
-        <el-menu-item index="/points">
+        <el-menu-item index="/points" v-if="userStore.isPageVisible('/points')">
           <el-icon><Coin /></el-icon>
           <template #title>积分系统</template>
         </el-menu-item>
-        <el-menu-item index="/homework">
+        <el-menu-item index="/homework" v-if="userStore.isPageVisible('/homework')">
           <el-icon><Document /></el-icon>
           <template #title>作业管理</template>
         </el-menu-item>
-        <el-menu-item index="/notifications">
+        <el-menu-item index="/notifications" v-if="userStore.isPageVisible('/notifications')">
           <el-icon><Bell /></el-icon>
           <template #title>通知中心</template>
         </el-menu-item>
-        <el-menu-item index="/settings" v-if="userStore.isAdmin">
+        <el-menu-item index="/settings" v-if="userStore.isAdmin && userStore.isPageVisible('/settings')">
           <el-icon><Setting /></el-icon>
           <template #title>系统设置</template>
+        </el-menu-item>
+        <el-menu-item index="/page-access" v-if="userStore.isAdmin">
+          <el-icon><Lock /></el-icon>
+          <template #title>页面访问管理</template>
         </el-menu-item>
       </el-menu>
 
@@ -179,7 +183,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { ElMessage } from 'element-plus'
@@ -203,7 +207,8 @@ import {
   Bell,
   Grid,
   Medal,
-  Avatar
+  Avatar,
+  Lock
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -231,9 +236,16 @@ const currentRouteName = computed(() => {
     '/semesters': '学期管理',
     '/logs': '操作日志',
     '/points': '积分系统',
-    '/points-display': '积分展示'
+    '/points-display': '积分展示',
+    '/teachers': '任课教师',
+    '/page-access': '页面访问管理'
   }
   return routeMap[route.path] || '页面'
+})
+
+onMounted(() => {
+  // 刷新页面访问配置（localStorage 缓存仅作首屏兜底）
+  userStore.fetchPageAccess()
 })
 
 const toggleCollapse = () => {

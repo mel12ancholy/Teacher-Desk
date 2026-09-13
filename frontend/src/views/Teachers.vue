@@ -134,6 +134,14 @@ const loadTeachers = async () => {
   }
 }
 
+const loadSubjects = async () => {
+  try {
+    subjects.value = (await api.subjects.list()) || []
+  } catch (e) {
+    console.error('获取标准科目失败:', e)
+  }
+}
+
 const handleAdd = () => {
   isEdit.value = false
   editingId.value = null

@@ -119,6 +119,12 @@ const routes = [
         path: 'notifications',
         name: 'Notifications',
         component: () => import('@/views/Notifications.vue')
+      },
+      {
+        path: 'page-access',
+        name: 'PageAccess',
+        component: () => import('@/views/PageAccess.vue'),
+        meta: { requiresAdmin: true }
       }
     ]
   }
@@ -131,12 +137,18 @@ const router = createRouter({
 
 router.beforeEach((to, from, next) => {
   const userStore = useUserStore()
-  
+
   if (to.path !== '/login' && !userStore.isLoggedIn) {
     next('/login')
   } else if (to.path === '/login' && userStore.isLoggedIn) {
     next('/')
   } else if (to.meta.requiresAdmin && !userStore.isAdmin) {
+    next('/dashboard')
+  } else if (
+    to.path !== '/dashboard' &&
+    !userStore.isPageVisible(to.path) &&
+    !(userStore.isAdmin && to.path === '/page-access') // 管理员始终可访问页面访问管理，防止锁死
+  ) {
     next('/dashboard')
   } else {
     next()

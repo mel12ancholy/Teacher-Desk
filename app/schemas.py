@@ -599,3 +599,28 @@ class NotificationListResponse(BaseModel):
     total: int
     unread_count: int
     data: List[NotificationResponse]
+
+
+# ==================== 页面访问配置 ====================
+
+class PageAccessItem(BaseModel):
+    role: str
+    page_path: str
+    is_visible: bool
+
+class PageAccessBatchUpdate(BaseModel):
+    configs: List[PageAccessItem]
+
+class PageAccessResponse(BaseModel):
+    id: int
+    role: str
+    page_path: str
+    is_visible: bool
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class MyPageAccessResponse(BaseModel):
+    role: str
+    hidden_pages: List[str]

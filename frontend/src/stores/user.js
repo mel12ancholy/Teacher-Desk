@@ -6,6 +6,8 @@ export const useUserStore = defineStore('user', () => {
   const token = ref(localStorage.getItem('token') || '')
   const userInfo = ref(JSON.parse(localStorage.getItem('user') || 'null'))
   const systemSettings = ref(JSON.parse(localStorage.getItem('system_settings') || 'null'))
+  // 当前角色被隐藏的页面列表（页面访问配置，后端下发）
+  const hiddenPages = ref(JSON.parse(localStorage.getItem('hidden_pages') || '[]'))
 
   const isLoggedIn = computed(() => !!token.value)
   const isAdmin = computed(() => userInfo.value?.role === 'admin')
@@ -13,21 +15,36 @@ export const useUserStore = defineStore('user', () => {
   const isTeacher = computed(() => userInfo.value?.role === 'teacher')
   const classId = computed(() => userInfo.value?.class_id)
 
+  function isPageVisible(path) {
+    return !hiddenPages.value.includes(path)
+  }
+
+  async function fetchPageAccess() {
+    try {
+      const res = await api.pageAccess.getMy()
+      hiddenPages.value = res.hidden_pages || []
+      localStorage.setItem('hidden_pages', JSON.stringify(hiddenPages.value))
+    } catch (e) {
+      console.error('获取页面访问配置失败', e)
+    }
+  }
+
   async function login(username, password) {
     const formData = new FormData()
     formData.append('username', username)
     formData.append('password', password)
-    
+
     const data = await api.auth.login(formData)
     token.value = data.access_token
     localStorage.setItem('token', data.access_token)
-    
+
     const userData = await api.auth.getCurrentUser()
     userInfo.value = userData
     localStorage.setItem('user', JSON.stringify(userData))
-    
+
     await fetchSystemSettings()
-    
+    await fetchPageAccess()
+
     return userData
   }
 
@@ -46,20 +63,25 @@ export const useUserStore = defineStore('user', () => {
     token.value = ''
     userInfo.value = null
     systemSettings.value = null
+    hiddenPages.value = []
     localStorage.removeItem('token')
     localStorage.removeItem('user')
     localStorage.removeItem('system_settings')
+    localStorage.removeItem('hidden_pages')
   }
 
   return {
     token,
     userInfo,
     systemSettings,
+    hiddenPages,
     isLoggedIn,
     isAdmin,
     isClassTeacher,
     isTeacher,
     classId,
+    isPageVisible,
+    fetchPageAccess,
     login,
     logout,
     fetchSystemSettings

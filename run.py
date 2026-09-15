@@ -4,8 +4,16 @@
 快速部署（迁移给他人使用）：
     python run.py                # 自动初始化数据库（首次）并启动后端服务
 
+地址与端口默认读取项目根目录的统一配置文件 .env（含 SERVER_IP、端口、数据库连接等，
+换办公地点只需修改 .env 中的 SERVER_IP 一处），详见《部署指南.md》。
+
+公网访问（临时远程测试）：
+    .env 中 PUBLIC_ACCESS=true + 填入 CPOLAR_AUTHTOKEN 后启动本脚本，
+    自动通过 cpolar 建立公网隧道（免费版随机地址，重启变化），详见《部署指南.md》。
+
 常用参数：
-    python run.py --host 192.168.1.7 --port 8001 --reload
+    python run.py --reload       # 开发模式热重载
+    python run.py --host 0.0.0.0 --port 8001   # 临时覆盖 .env 中的地址/端口
     python run.py --init-only    # 仅初始化数据库，不启动服务
     python run.py --reset-db     # 清空数据库后重新初始化（危险！会删除全部数据）
 
@@ -250,24 +258,134 @@ def _seed_students_and_scores(db, cls):
     print(f"[init] 已写入 {EXAM_TYPE} 成绩 {inserted} 条（学期 {SEMESTER_NAME}，科目 {len(SCORE_SUBJECTS)} 个）")
 
 
+def _start_public_tunnels():
+    """PUBLIC_ACCESS=true 时通过 cpolar 为两个前端端口建立公网隧道，返回子进程列表。
+
+    仅映射前端端口（班主任端/家长端）：远程浏览器访问 cpolar 公网地址 -> 本机 vite ->
+    vite 将 /api 代理到本机后端，后端与数据库不直接暴露公网。
+    cpolar 免费版：随机公网地址（每次重启变化）、限速 1Mbps、最多 4 条隧道。
+    """
+    import re
+    import shutil
+    import subprocess
+    import threading
+
+    from app.config import settings
+
+    if not settings.PUBLIC_ACCESS:
+        return []
+
+    print("[public] 公网访问模式已开启（.env PUBLIC_ACCESS=true，测试完请改回 false）")
+    # 定位 cpolar：优先 PATH，其次项目内便携版 tools\cpolar\cpolar.exe
+    candidates = []
+    for p in [shutil.which("cpolar"),
+              os.path.join(BASE_DIR, "tools", "cpolar", "cpolar.exe"),
+              r"C:\Program Files\cpolar\cpolar.exe",
+              r"C:\Program Files (x86)\cpolar\cpolar.exe"]:
+        if p and os.path.exists(p):
+            candidates.append(p)
+    if not candidates:
+        print("[public] 警告: 未找到 cpolar（已尝试 PATH、tools\\cpolar\\cpolar.exe 及默认安装目录）")
+        print("[public]   请到 https://www.cpolar.com/download 下载 Windows 版，")
+        print("[public]   或将 cpolar.exe 放到项目 tools\\cpolar\\ 目录下，然后重启")
+        return []
+    cpolar = candidates[0]
+
+    if not settings.CPOLAR_AUTHTOKEN:
+        print("[public] 警告: .env 中 CPOLAR_AUTHTOKEN 为空，跳过公网隧道（仅本地启动）")
+        print("[public]   请到 https://www.cpolar.com 注册账号，")
+        print("[public]   登录 https://dashboard.cpolar.com 在「验证」页复制 authtoken 填入 .env 后重启")
+        return []
+
+    # 写入 authtoken（幂等，cpolar 会保存到自身配置文件）
+    r = subprocess.run([cpolar, "authtoken", settings.CPOLAR_AUTHTOKEN],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"[public] 警告: cpolar authtoken 配置失败: {(r.stdout or r.stderr or '').strip()}")
+
+    procs = []
+    for label, port in [("班主任端", settings.FRONTEND_PORT), ("家长端", settings.PARENT_PORT)]:
+        try:
+            p = subprocess.Popen(
+                [cpolar, "http", str(port)],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace",
+                cwd=BASE_DIR,
+            )
+        except Exception as e:
+            print(f"[public] 警告: 启动 {label} 隧道失败: {e}")
+            continue
+        procs.append(p)
+
+        # 后台线程解析公网地址（cpolar 输出中含 "->" 的 Forwarding 行）
+        def watch(p=p, label=label):
+            found = set()
+            try:
+                for line in p.stdout:
+                    if "->" not in line:
+                        continue
+                    m = re.search(r"https?://[^\s]+", line)
+                    if m and m.group(0) not in found:
+                        print(f"[public] {label} 公网地址: {m.group(0)}")
+                        found.add(m.group(0))
+                if not found and p.poll() is not None:
+                    print(f"[public] 警告: {label} 隧道已退出（请检查 authtoken 是否有效 / 免费版隧道数量是否超限）")
+            except Exception:
+                pass
+
+        threading.Thread(target=watch, daemon=True).start()
+    return procs
+
+
+def _stop_public_tunnels(procs):
+    """退出时清理 cpolar 子进程，避免隧道残留"""
+    for p in procs:
+        try:
+            p.terminate()
+        except Exception:
+            pass
+
+
 def main():
+    from app.config import settings
+
     parser = argparse.ArgumentParser(description="班主任工作台一键启动脚本")
-    parser.add_argument("--host", default="192.168.1.7", help="监听地址（默认 0.0.0.0，支持局域网访问）")
-    parser.add_argument("--port", type=int, default=8001, help="监听端口（默认 8001）")
+    parser.add_argument("--host", default=None,
+                        help=f"监听地址（默认读根目录 .env 的 BACKEND_HOST，当前 {settings.BACKEND_HOST}）")
+    parser.add_argument("--port", type=int, default=None,
+                        help=f"监听端口（默认读根目录 .env 的 BACKEND_PORT，当前 {settings.BACKEND_PORT}）")
     parser.add_argument("--reload", action="store_true", help="开发模式热重载")
     parser.add_argument("--init-only", action="store_true", help="仅初始化数据库，不启动服务")
     parser.add_argument("--reset-db", action="store_true", help="清空数据库后重新初始化（危险！）")
     parser.add_argument("--no-xlsx", action="store_true", help="初始化时跳过七下期末.xlsx 种子数据")
     args = parser.parse_args()
 
+    host = args.host or settings.BACKEND_HOST
+    port = args.port or settings.BACKEND_PORT
+
     init_database(reset=args.reset_db, with_xlsx=not args.no_xlsx)
 
     if args.init_only:
         return
 
+    public_procs = _start_public_tunnels()
+
     import uvicorn
-    print(f"[run] 启动后端服务: http://{args.host}:{args.port}")
-    uvicorn.run("app.main:app", host=args.host, port=args.port, reload=args.reload)
+    ip = settings.SERVER_IP
+    print("=" * 56)
+    print(f"[run] 后端监听地址: http://{host}:{port}")
+    print(f"[run] 局域网访问提示（SERVER_IP={ip}，换网络请修改 .env 后重启）:")
+    print(f"[run]   后端 API:  http://{ip}:{port}/")
+    print(f"[run]   班主任端:  http://{ip}:{settings.FRONTEND_PORT}/")
+    print(f"[run]   家长端:    http://{ip}:{settings.PARENT_PORT}/")
+    if settings.PUBLIC_ACCESS:
+        print("[run] 公网模式已开启，cpolar 公网地址见上方 [public] 输出（重启后地址变化需重新发送）")
+        print("[run] 注意：公网模式仍需照常启动两个前端（start-frontend.bat / start-parent.bat）")
+    print("=" * 56)
+    try:
+        uvicorn.run("app.main:app", host=host, port=port, reload=args.reload)
+    finally:
+        _stop_public_tunnels(public_procs)
 
 
 if __name__ == "__main__":

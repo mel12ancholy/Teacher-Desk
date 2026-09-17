@@ -24,6 +24,9 @@ export default defineConfig(({ mode }) => {
     server: {
       host: parentHost,
       port: parentPort,
+      // 公网隧道（cpolar）域名白名单：免费版每次重启随机分配子域名，
+      // 放行 cpolar 常见域名后缀；IP 直连（局域网）不受影响
+      allowedHosts: ['.cpolar.top', '.cpolar.cn', '.cpolar.io'],
       proxy: {
         '/api': {
           // 本机转发到后端（与班主任端共用同一后端），换局域网 IP 无需修改

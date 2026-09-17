@@ -55,6 +55,24 @@ GRADE_ONLY_SUBJECTS = ["音", "美", "信", "口", "书"]
 STANDARD_SUBJECTS = SCORE_SUBJECTS + GRADE_ONLY_SUBJECTS
 
 
+def _ensure_columns() -> None:
+    """create_all 不会给已有表新增列，此处对旧库补齐模型中新增的列（幂等）"""
+    from sqlalchemy import inspect, text
+    from app.database import engine
+
+    # (表名, 列名, 列定义)
+    pending = [("users", "phone", "VARCHAR")]
+
+    inspector = inspect(engine)
+    for table, column, ddl in pending:
+        if table not in inspector.get_table_names():
+            continue
+        if column not in [c["name"] for c in inspector.get_columns(table)]:
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+            print(f"[init] 已为表 {table} 补充列 {column}")
+
+
 def init_database(reset: bool = False, with_xlsx: bool = True) -> None:
     from app.database import engine, Base, SessionLocal
     import app.models  # noqa: F401 确保所有模型注册到 Base
@@ -64,6 +82,7 @@ def init_database(reset: bool = False, with_xlsx: bool = True) -> None:
         Base.metadata.drop_all(bind=engine)
     print("[init] 创建/校验数据表（对齐当前 ORM 模型）...")
     Base.metadata.create_all(bind=engine)
+    _ensure_columns()
 
     db = SessionLocal()
     try:
@@ -306,8 +325,10 @@ def _start_public_tunnels():
     procs = []
     for label, port in [("班主任端", settings.FRONTEND_PORT), ("家长端", settings.PARENT_PORT)]:
         try:
+            # -log stdout: 管道模式下 cpolar 才会输出隧道日志（含公网地址），
+            # 否则仅交互终端显示 TUI 横幅，子进程捕获不到任何输出
             p = subprocess.Popen(
-                [cpolar, "http", str(port)],
+                [cpolar, "http", str(port), "-log", "stdout", "-log-level", "INFO"],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, encoding="utf-8", errors="replace",
                 cwd=BASE_DIR,
@@ -317,16 +338,17 @@ def _start_public_tunnels():
             continue
         procs.append(p)
 
-        # 后台线程解析公网地址（cpolar 输出中含 "->" 的 Forwarding 行）
+        # 后台线程解析公网地址（-log stdout 模式输出 "Tunnel established at <url>"，
+        # 交互终端模式输出含 "->" 的 Forwarding 行，两种都兼容）
         def watch(p=p, label=label):
             found = set()
             try:
                 for line in p.stdout:
-                    if "->" not in line:
+                    if "Tunnel established at" not in line and "->" not in line:
                         continue
-                    m = re.search(r"https?://[^\s]+", line)
+                    m = re.search(r"https?://[^\s'\"]+", line)
                     if m and m.group(0) not in found:
-                        print(f"[public] {label} 公网地址: {m.group(0)}")
+                        print(f"[public] {label} 公网地址: {m.group(0)}", flush=True)
                         found.add(m.group(0))
                 if not found and p.poll() is not None:
                     print(f"[public] 警告: {label} 隧道已退出（请检查 authtoken 是否有效 / 免费版隧道数量是否超限）")

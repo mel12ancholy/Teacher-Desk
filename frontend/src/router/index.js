@@ -125,6 +125,11 @@ const routes = [
         name: 'PageAccess',
         component: () => import('@/views/PageAccess.vue'),
         meta: { requiresAdmin: true }
+      },
+      {
+        path: 'profile',
+        name: 'Profile',
+        component: () => import('@/views/Profile.vue')
       }
     ]
   }

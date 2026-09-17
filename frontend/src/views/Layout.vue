@@ -238,7 +238,8 @@ const currentRouteName = computed(() => {
     '/points': '积分系统',
     '/points-display': '积分展示',
     '/teachers': '任课教师',
-    '/page-access': '页面访问管理'
+    '/page-access': '页面访问管理',
+    '/profile': '个人中心'
   }
   return routeMap[route.path] || '页面'
 })
@@ -273,7 +274,7 @@ const getRoleTagType = (role) => {
 const handleCommand = (command) => {
   switch (command) {
     case 'profile':
-      ElMessage.info('个人中心功能开发中...')
+      router.push('/profile')
       break
     case 'settings':
       ElMessage.info('设置功能开发中...')

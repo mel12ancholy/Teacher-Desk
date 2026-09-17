@@ -105,6 +105,9 @@ def update_user(
     if not is_admin(current_user):
         if user_data.role or user_data.class_id is not None:
             raise HTTPException(status_code=403, detail="无权修改权限或班级")
+        if user_data.password is not None:
+            # 非管理员修改密码必须走个人中心（需验证旧密码），防止绕过
+            raise HTTPException(status_code=403, detail="修改密码请前往个人中心")
 
     changes = []
     if user_data.username is not None:
@@ -120,6 +123,12 @@ def update_user(
     if user_data.real_name is not None:
         changes.append(f"姓名: {user.real_name} -> {user_data.real_name}")
         user.real_name = user_data.real_name
+
+    if user_data.password is not None and is_admin(current_user):
+        if len(user_data.password) < 6:
+            raise HTTPException(status_code=400, detail="密码长度不能少于 6 位")
+        user.hashed_password = get_password_hash(user_data.password)
+        changes.append("密码: 已修改")
 
     if user_data.role is not None and is_admin(current_user):
         changes.append(f"角色: {user.role} -> {user_data.role}")
@@ -148,6 +157,35 @@ def update_user(
         )
 
     return user
+
+@router.put("/{user_id}/reset-password")
+def reset_password(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """管理员重置用户密码为 123456789"""
+    if not is_admin(current_user):
+        raise HTTPException(status_code=403, detail="只有管理员可以重置密码")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    user.hashed_password = get_password_hash("123456789")
+    db.commit()
+
+    LogService.log_update(
+        db=db,
+        user_id=current_user.id,
+        username=current_user.username,
+        target_type="用户",
+        target_id=user.id,
+        target_name=f"{user.real_name}({user.username})",
+        changes="密码: 已重置为默认密码"
+    )
+
+    return {"message": "密码已重置为 123456789"}
 
 @router.delete("/{user_id}")
 def delete_user(

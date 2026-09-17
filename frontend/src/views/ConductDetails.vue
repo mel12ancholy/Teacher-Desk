@@ -46,7 +46,7 @@
         </el-table-column>
         <el-table-column prop="remark" label="备注" min-width="200" show-overflow-tooltip />
         <template #empty>
-          <el-empty description="该学期暂无超行分明细记录" />
+          <el-empty description="该学期暂无操行分明细记录" />
         </template>
       </el-table>
     </el-card>

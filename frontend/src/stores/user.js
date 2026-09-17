@@ -70,6 +70,12 @@ export const useUserStore = defineStore('user', () => {
     localStorage.removeItem('hidden_pages')
   }
 
+  // 个人中心保存资料后同步本地用户信息
+  function setUserInfo(data) {
+    userInfo.value = data
+    localStorage.setItem('user', JSON.stringify(data))
+  }
+
   return {
     token,
     userInfo,
@@ -84,6 +90,7 @@ export const useUserStore = defineStore('user', () => {
     fetchPageAccess,
     login,
     logout,
-    fetchSystemSettings
+    fetchSystemSettings,
+    setUserInfo
   }
 })

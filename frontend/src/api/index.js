@@ -43,14 +43,16 @@ export default {
   auth: {
     login: (data) => api.post('/auth/login', data),
     register: (data) => api.post('/auth/register', data),
-    getCurrentUser: () => api.get('/auth/me')
+    getCurrentUser: () => api.get('/auth/me'),
+    updateProfile: (data) => api.put('/auth/profile', data)
   },
   users: {
     list: (params) => api.get('/users', { params }),
     get: (id) => api.get(`/users/${id}`),
     create: (data) => api.post('/users', data),
     update: (id, data) => api.put(`/users/${id}`, data),
-    delete: (id) => api.delete(`/users/${id}`)
+    delete: (id) => api.delete(`/users/${id}`),
+    resetPassword: (id) => api.put(`/users/${id}/reset-password`)
   },
   classes: {
     list: () => api.get('/classes'),

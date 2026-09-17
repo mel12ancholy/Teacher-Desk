@@ -27,9 +27,10 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200">
+        <el-table-column label="操作" width="290">
           <template #default="{ row }">
             <el-button type="primary" size="small" @click="handleEdit(row)">编辑</el-button>
+            <el-button type="warning" size="small" @click="handleResetPassword(row)">重置密码</el-button>
             <el-button type="danger" size="small" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -37,12 +38,15 @@
     </div>
 
     <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑用户' : '新增用户'" width="500px">
-      <el-form :model="form" :rules="rules" ref="formRef" label-width="80px">
+      <el-form :model="form" :rules="formRules" ref="formRef" label-width="80px">
         <el-form-item label="用户名" prop="username">
           <el-input v-model="form.username" :disabled="isEdit" />
         </el-form-item>
         <el-form-item label="密码" prop="password" v-if="!isEdit">
           <el-input v-model="form.password" type="password" show-password />
+        </el-form-item>
+        <el-form-item label="新密码" v-if="isEdit">
+          <el-input v-model="form.password" type="password" show-password placeholder="留空表示不修改密码" />
         </el-form-item>
         <el-form-item label="姓名" prop="real_name">
           <el-input v-model="form.real_name" />
@@ -72,7 +76,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import api from '@/api'
@@ -99,6 +103,19 @@ const rules = {
   real_name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
   role: [{ required: true, message: '请选择角色', trigger: 'change' }]
 }
+
+// 编辑模式密码可留空（留空=不修改），新增模式密码必填
+const formRules = computed(() => {
+  if (isEdit.value) {
+    return {
+      ...rules,
+      password: [
+        { min: 6, message: '密码长度不能少于 6 位', trigger: 'blur' }
+      ]
+    }
+  }
+  return rules
+})
 
 const getRoleText = (role) => {
   const roleMap = {
@@ -146,12 +163,29 @@ const handleEdit = (row) => {
   editingId.value = row.id
   Object.assign(form, {
     username: row.username,
+    password: '',
     real_name: row.real_name,
     role: row.role,
     class_id: row.class_id,
     is_active: row.is_active
   })
   dialogVisible.value = true
+}
+
+const handleResetPassword = async (row) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定将用户「${row.real_name}(${row.username})」的密码重置为 123456789 吗？`,
+      '重置密码',
+      { type: 'warning', confirmButtonText: '重置', cancelButtonText: '取消' }
+    )
+    await api.users.resetPassword(row.id)
+    ElMessage.success('密码已重置为 123456789')
+  } catch (e) {
+    if (e !== 'cancel' && e?.response) {
+      ElMessage.error(e.response.data?.detail || '重置失败')
+    }
+  }
 }
 
 const handleDelete = async (row) => {
@@ -171,12 +205,17 @@ const handleSubmit = async () => {
   await formRef.value.validate()
   try {
     if (isEdit.value) {
-      await api.users.update(editingId.value, {
+      const payload = {
         real_name: form.real_name,
         role: form.role,
         class_id: form.class_id,
         is_active: form.is_active
-      })
+      }
+      // 密码留空表示不修改；填了才传（仅管理员，后端校验）
+      if (form.password) {
+        payload.password = form.password
+      }
+      await api.users.update(editingId.value, payload)
       ElMessage.success('修改成功')
     } else {
       await api.users.create(form)

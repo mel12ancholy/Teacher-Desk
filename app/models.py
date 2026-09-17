@@ -26,6 +26,7 @@ class User(Base):
     username = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     real_name = Column(String, nullable=False)
+    phone = Column(String, nullable=True)
     role = Column(String, nullable=False, default="teacher")
     class_id = Column(Integer, ForeignKey("classes.id"), nullable=True)
     is_active = Column(Boolean, default=True)

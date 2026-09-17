@@ -12,7 +12,7 @@ from app.schemas import (
 from app.auth import get_current_active_user
 from app.routers.classes import get_accessible_class_ids
 
-router = APIRouter(prefix="/api/conduct", tags=["超行分记录"])
+router = APIRouter(prefix="/api/conduct", tags=["操行分记录"])
 
 
 def _get_accessible_student_ids(current_user: User, db: Session) -> List[int]:
@@ -78,7 +78,7 @@ def get_conduct_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """查询学生超行分汇总（班级 + 学期，仅补充缺失的汇总记录，不重复插入）"""
+    """查询学生操行分汇总（班级 + 学期，仅补充缺失的汇总记录，不重复插入）"""
     _check_term_exists(term_id, db)
 
     class_ids = get_accessible_class_ids(current_user, db)
@@ -136,7 +136,7 @@ def get_conduct_details(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """查询超行分明细（班级 + 学期，可按学生过滤），仅限当前用户管理的学生"""
+    """查询操行分明细（班级 + 学期，可按学生过滤），仅限当前用户管理的学生"""
     _check_term_exists(term_id, db)
     accessible_ids = _get_accessible_student_ids(current_user, db)
     if not accessible_ids:
@@ -173,7 +173,7 @@ def create_conduct_detail(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """新增超行分明细，并在同一事务中更新汇总值"""
+    """新增操行分明细，并在同一事务中更新汇总值"""
     student = _check_student_access(data.student_id, current_user, db)
     _check_term_exists(data.term_id, db)
 
@@ -195,7 +195,7 @@ def create_conduct_detail(
         db.refresh(detail)
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"新增超行分记录失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"新增操行分记录失败: {str(e)}")
 
     return detail
 
@@ -207,7 +207,7 @@ def update_conduct_detail(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """修改超行分明细，并在同一事务中更新汇总值"""
+    """修改操行分明细，并在同一事务中更新汇总值"""
     detail = db.query(DetailConductScore).filter(DetailConductScore.id == detail_id).first()
     if not detail:
         raise HTTPException(status_code=404, detail="明细记录不存在")
@@ -225,7 +225,7 @@ def update_conduct_detail(
         db.refresh(detail)
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"修改超行分记录失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"修改操行分记录失败: {str(e)}")
 
     return detail
 
@@ -236,7 +236,7 @@ def delete_conduct_detail(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """删除超行分明细，并在同一事务中更新汇总值"""
+    """删除操行分明细，并在同一事务中更新汇总值"""
     detail = db.query(DetailConductScore).filter(DetailConductScore.id == detail_id).first()
     if not detail:
         raise HTTPException(status_code=404, detail="明细记录不存在")
@@ -249,6 +249,6 @@ def delete_conduct_detail(
         db.commit()
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"删除超行分记录失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"删除操行分记录失败: {str(e)}")
 
     return {"message": "删除成功"}

@@ -37,6 +37,7 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
     username: Optional[str] = None
     real_name: Optional[str] = None
+    password: Optional[str] = None  # 仅管理员可用（管理员修改任意用户密码）
     role: Optional[str] = None
     class_id: Optional[int] = None
     is_active: Optional[bool] = None
@@ -46,9 +47,17 @@ class UserResponse(UserBase):
     is_active: bool
     created_at: datetime
     class_id: Optional[int] = None
+    phone: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+class ProfileUpdate(BaseModel):
+    """个人中心资料修改（仅本人）"""
+    real_name: Optional[str] = None
+    phone: Optional[str] = None
+    old_password: Optional[str] = None  # 修改密码时必填
+    new_password: Optional[str] = None
 
 class LoginRequest(BaseModel):
     username: str

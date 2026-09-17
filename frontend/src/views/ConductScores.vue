@@ -18,7 +18,7 @@
           <span class="filter-label">排序字段：</span>
           <el-select v-model="filterSortBy" style="width: 140px">
             <el-option label="姓名" value="name" />
-            <el-option label="超行分汇总值" value="score" />
+            <el-option label="操行分汇总值" value="score" />
           </el-select>
         </div>
         <div class="filter-item">
@@ -37,7 +37,7 @@
       <el-table :data="summaries" v-loading="loading" stripe @row-click="handleRowClick"
         class="summary-table" :row-class-name="() => 'clickable-row'">
         <el-table-column prop="student_name" label="学生姓名" min-width="160" />
-        <el-table-column label="超行分" min-width="120" align="center">
+        <el-table-column label="操行分" min-width="120" align="center">
           <template #default="{ row }">
             <span :class="scoreClass(row.total_score)">{{ row.total_score }}</span>
           </template>
@@ -92,7 +92,7 @@
     </el-drawer>
 
     <!-- 新增/编辑明细 -->
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑超行分记录' : '新增超行分记录'" width="460px">
+    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑操行分记录' : '新增操行分记录'" width="460px">
       <el-form :model="detailForm" label-width="80px" ref="detailFormRef" :rules="detailRules">
         <el-form-item label="学生">
           <el-input :model-value="currentStudent?.student_name" disabled />
@@ -162,7 +162,7 @@ const detailRules = {
 }
 
 const currentTermName = computed(() => terms.value.find(t => t.id === filterTermId.value)?.name || '')
-const drawerTitle = computed(() => `超行分明细 - ${currentStudent.value?.student_name || ''}`)
+const drawerTitle = computed(() => `操行分明细 - ${currentStudent.value?.student_name || ''}`)
 
 const scoreClass = (score) => score > 0 ? 'score-positive' : score < 0 ? 'score-negative' : 'score-zero'
 
@@ -295,7 +295,7 @@ const handleSaveDetail = async () => {
 
 const handleDeleteDetail = async (row) => {
   try {
-    await ElMessageBox.confirm('确认删除该条超行分记录吗？删除后汇总将同步扣减。', '删除记录',
+    await ElMessageBox.confirm('确认删除该条操行分记录吗？删除后汇总将同步扣减。', '删除记录',
       { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' })
   } catch {
     return

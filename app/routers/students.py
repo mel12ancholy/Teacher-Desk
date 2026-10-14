@@ -3,7 +3,11 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
 from app.database import get_db
-from app.models import User, Student, Class, Score, Attendance
+from app.models import (
+    User, Student, Class, Score, Attendance,
+    StudentPoint, PointRecord, PointExchange,
+    SeatingChart, SummaryConductScore, DetailConductScore
+)
 from app.schemas import StudentCreate, StudentUpdate, StudentResponse, StudentListResponse
 from app.auth import get_current_active_user
 from app.routers.classes import get_accessible_class_ids
@@ -205,6 +209,13 @@ def delete_student(
         raise HTTPException(status_code=403, detail="无权删除该学生")
     
     try:
+        # 级联清理所有引用该学生的业务数据，再删除学生本体（同一事务，保证原子性）
+        db.query(DetailConductScore).filter(DetailConductScore.student_id == student_id).delete()
+        db.query(SummaryConductScore).filter(SummaryConductScore.student_id == student_id).delete()
+        db.query(SeatingChart).filter(SeatingChart.student_id == student_id).delete()
+        db.query(PointExchange).filter(PointExchange.student_id == student_id).delete()
+        db.query(PointRecord).filter(PointRecord.student_id == student_id).delete()
+        db.query(StudentPoint).filter(StudentPoint.student_id == student_id).delete()
         db.query(Attendance).filter(Attendance.student_id == student_id).delete()
         db.query(Score).filter(Score.student_id == student_id).delete()
         db.delete(student)
@@ -298,6 +309,10 @@ async def create_students_batch(
     errors = []
     failed_data = []
     duplicate_count = 0
+    # 跟踪本批次内已受理的 (class_id, student_no)。
+    # SessionLocal 配置 autoflush=False，db.query 看不到本批次 add 后未提交的记录，
+    # 批内重复必须用内存集合拦截，否则会在 commit 时触发 uq_student_class_no 唯一约束冲突导致整批回滚。
+    batch_seen = set()
     
     for i, student_data in enumerate(students_list):
         if not isinstance(student_data, dict):
@@ -341,25 +356,51 @@ async def create_students_batch(
             print(f"[DEBUG] 无权访问班级 {class_id}", file=sys.stderr)
             continue
         
+        student_no = str(student_data.get("student_no") or "").strip()
+        
+        if not student_no:
+            errors.append(f"第{i+1}行: 学号为空")
+            failed_data.append({
+                "row": i + 1,
+                "name": student_data.get("name", ""),
+                "student_no": "",
+                "error": "学号不能为空，请补全后重新导入"
+            })
+            print(f"[DEBUG] 第{i+1}行学号为空，跳过", file=sys.stderr)
+            continue
+        
+        if (class_id, student_no) in batch_seen:
+            errors.append(f"第{i+1}行: 学号 {student_no} 在本批次中重复")
+            duplicate_count += 1
+            failed_data.append({
+                "row": i + 1,
+                "name": student_data.get("name", ""),
+                "student_no": student_no,
+                "error": "学号在本批次中重复"
+            })
+            print(f"[DEBUG] 学号 {student_no} 在本批次中重复，跳过", file=sys.stderr)
+            continue
+        
         existing_in_class = db.query(Student).filter(
-            Student.student_no == student_data.get("student_no"),
+            Student.student_no == student_no,
             Student.class_id == class_id
         ).first()
         if existing_in_class:
-            error_msg = f"第{i+1}行: 学号 {student_data.get('student_no')} 在该班级已存在"
+            error_msg = f"第{i+1}行: 学号 {student_no} 在该班级已存在"
             errors.append(error_msg)
             duplicate_count += 1
             failed_data.append({
                 "row": i + 1,
                 "name": student_data.get("name", ""),
-                "student_no": student_data.get("student_no", ""),
+                "student_no": student_no,
                 "error": "学号已存在"
             })
             continue
         
+        batch_seen.add((class_id, student_no))
         student = Student(
             name=student_data.get("name", ""),
-            student_no=student_data.get("student_no", ""),
+            student_no=student_no,
             gender=student_data.get("gender", "male"),
             phone=student_data.get("phone", ""),
             parent_phone=student_data.get("parent_phone", ""),
@@ -379,13 +420,14 @@ async def create_students_batch(
         error_msg = str(e)
         print(f"[DEBUG] 数据库提交失败: {error_msg}", file=sys.stderr)
         if "duplicate key" in error_msg.lower() or "unique" in error_msg.lower():
-            errors.append(f"数据库错误: 部分学号在该班级可能已存在")
+            # 整批已回滚，实际未导入任何学生
+            errors.append(f"数据库错误: 存在重复数据，本批次已全部回滚（{error_msg.split(chr(10))[0][:120]}）")
             return {
-                "success": len(results),
-                "failed": len(errors) + 1,
+                "success": 0,
+                "failed": len(students_list),
                 "total": len(students_list),
                 "duplicate": duplicate_count,
-                "names": results,
+                "names": [],
                 "errors": errors,
                 "failed_data": failed_data
             }

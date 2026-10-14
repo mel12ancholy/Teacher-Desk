@@ -574,14 +574,21 @@ const resetParentCode = async (row) => {
 
 const handleDelete = async (row) => {
   try {
-    await ElMessageBox.confirm('确定删除该学生吗?', '提示', { type: 'warning' })
+    await ElMessageBox.confirm(
+      '确定删除该学生吗？将同时清除其成绩、考勤、超行分、座位与积分数据，操作不可恢复！',
+      '提示',
+      { type: 'warning' }
+    )
+  } catch {
+    // 用户取消或关闭确认框，不算错误
+    return
+  }
+  try {
     await axios.delete(`${baseURL}/students/${row.id}`, { headers: getAuthHeader() })
     ElMessage.success('删除成功')
     loadStudents()
   } catch (e) {
-    if (e !== 'cancel') {
-      ElMessage.error('删除失败')
-    }
+    ElMessage.error('删除失败：' + (e.response?.data?.detail || e.message || '未知错误'))
   }
 }
 
@@ -633,12 +640,23 @@ const handleFileChange = (uploadFile) => {
         
         if (jsonData.length > 1) {
           const header = jsonData[0].map(h => String(h).trim())
+          
+          // 校验必需表头列，避免 indexOf 匹配失败导致学号解析为空
+          const missingCols = ['姓名', '学号'].filter(c => !header.includes(c))
+          if (missingCols.length > 0) {
+            ElMessage.error(`Excel 表头缺少必需列：${missingCols.join('、')}。请使用「下载模板」生成的文件格式`)
+            batchForm.studentList = []
+            batchForm.studentData = ''
+            return
+          }
+          
           const rows = jsonData.slice(1).filter(row => row.some(cell => cell !== undefined && cell !== null && cell !== ''))
           
-          batchForm.studentList = rows.map(row => {
+          batchForm.studentList = rows.map((row, idx) => {
             const getValue = (index) => row[index] !== undefined ? String(row[index]).trim() : ''
             
             return {
+              row: idx + 2, // Excel 实际行号（第1行为表头）
               name: getValue(header.indexOf('姓名')),
               student_no: getValue(header.indexOf('学号')),
               gender: getValue(header.indexOf('性别')) === '女' ? 'female' : 'male',
@@ -647,6 +665,12 @@ const handleFileChange = (uploadFile) => {
               address: getValue(header.indexOf('地址'))
             }
           })
+          
+          // 提示学号为空的行
+          const emptyNoRows = batchForm.studentList.filter(s => !s.student_no)
+          if (emptyNoRows.length > 0) {
+            ElMessage.warning(`第 ${emptyNoRows.map(s => s.row).join('、')} 行学号为空，这些行将无法导入，请补全学号`)
+          }
           
           const csvLines = rows.map(row => {
             return header.map((col, i) => {
@@ -839,7 +863,7 @@ const handleBatchDelete = async () => {
       })
     }
   } catch (e) {
-    if (e !== 'cancel') {
+    if (e !== 'cancel' && e !== 'close') {
       console.error('批量删除异常:', e)
       ElMessage.error('批量删除失败')
     }

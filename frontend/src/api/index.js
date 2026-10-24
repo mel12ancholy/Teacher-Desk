@@ -42,7 +42,6 @@ api.interceptors.response.use(
 export default {
   auth: {
     login: (data) => api.post('/auth/login', data),
-    register: (data) => api.post('/auth/register', data),
     getCurrentUser: () => api.get('/auth/me'),
     updateProfile: (data) => api.put('/auth/profile', data)
   },
@@ -81,7 +80,11 @@ export default {
     getClassSubjects: (classId) => api.get(`/subjects/class/${classId}`),
     createClassSubject: (data) => api.post('/subjects/class', data),
     updateClassSubject: (id, data) => api.put(`/subjects/class/${id}`, data),
-    deleteClassSubject: (id) => api.delete(`/subjects/class/${id}`)
+    deleteClassSubject: (id) => api.delete(`/subjects/class/${id}`),
+    // 考试类型默认满分（科目 × 考试类型）
+    listExamTypeFullScores: (params) => api.get('/subjects/exam-type-full-scores', { params }),
+    upsertExamTypeFullScore: (data) => api.post('/subjects/exam-type-full-scores', data),
+    deleteExamTypeFullScore: (id) => api.delete(`/subjects/exam-type-full-scores/${id}`)
   },
   teachers: {
     list: (params) => api.get('/teachers', { params }),
@@ -96,7 +99,15 @@ export default {
     create: (data) => api.post('/scores', data),
     update: (id, data) => api.put(`/scores/${id}`, data),
     delete: (id) => api.delete(`/scores/${id}`),
-    getStudentScores: (studentId, params) => api.get(`/scores/student/${studentId}`, { params })
+    getStudentScores: (studentId, params) => api.get(`/scores/student/${studentId}`, { params }),
+    // 年级单科平均分（人工录入参照值）
+    getGradeAverages: (params) => api.get('/scores/grade-averages', { params }),
+    saveGradeAverages: (data) => api.post('/scores/grade-averages', data),
+    deleteGradeAverage: (id) => api.delete(`/scores/grade-averages/${id}`),
+    getExamDates: (params) => api.get('/scores/exam-dates', { params }),
+    // 按条件批量删除
+    batchCount: (params) => api.get('/scores/batch-count', { params }),
+    batchDelete: (params) => api.delete('/scores/batch-delete', { params })
   },
   semesters: {
     list: () => api.get('/semesters'),
@@ -123,7 +134,12 @@ export default {
     getStudentAnalysis: (studentId, params) => api.get(`/analytics/student/${studentId}`, { params }),
     getSubjectTrend: (params) => api.get('/analytics/subject-trend', { params }),
     getClassAnalysis: (classId, params) => api.get(`/analytics/class/${classId}`, { params }),
-    getComparison: (classId, params) => api.get('/analytics/comparison', { params })
+    getComparison: (classId, params) => api.get(`/analytics/comparison`, { params: { class_id: classId, ...params } }),
+    getExams: (params) => api.get('/analytics/exams', { params }),
+    getExamReport: (params) => api.get('/analytics/exam-report', { params }),
+    // 场次实例满分（本场某科目实际满分，优先级最高）
+    setExamFullScore: (params) => api.put('/analytics/exam-full-score', null, { params }),
+    clearExamFullScore: (params) => api.delete('/analytics/exam-full-score', { params })
   },
   seating: {
     get: (classId, date) => api.get('/seating', { params: { class_id: classId, ...(date ? { date } : {}) } }),
@@ -137,6 +153,13 @@ export default {
     createDetail: (data) => api.post('/conduct/details', data),
     updateDetail: (id, data) => api.put(`/conduct/details/${id}`, data),
     deleteDetail: (id) => api.delete(`/conduct/details/${id}`)
+  },
+  points: {
+    getRanking: (params) => api.get('/points/ranking', { params })
+  },
+  homeworks: {
+    list: (params) => api.get('/homeworks', { params }),
+    archive: (id, isArchived) => api.put(`/homeworks/${id}/archive`, { is_archived: isArchived })
   },
   pageAccess: {
     getMy: () => api.get('/page-access/my'),

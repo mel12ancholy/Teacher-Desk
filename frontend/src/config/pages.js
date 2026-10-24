@@ -10,7 +10,6 @@ export const PAGE_REGISTRY = [
   { path: '/conduct-details', title: '操行分明细', inMenu: false, adminOnly: false },
   { path: '/scores', title: '成绩管理', inMenu: true, adminOnly: false },
   { path: '/attendance', title: '考勤管理', inMenu: true, adminOnly: false },
-  { path: '/rankings', title: '班级排名', inMenu: true, adminOnly: false },
   { path: '/analysis', title: '成绩分析', inMenu: true, adminOnly: false },
   { path: '/users', title: '用户管理', inMenu: true, adminOnly: true },
   { path: '/teachers', title: '任课教师', inMenu: true, adminOnly: false },

@@ -11,33 +11,50 @@
       </template>
 
       <div class="filter-row">
-        <el-select v-model="filterClassId" placeholder="选择班级" clearable @change="fetchHomeworks">
+        <el-radio-group v-model="archiveFilter" @change="fetchHomeworks">
+          <el-radio-button :value="false">未归档</el-radio-button>
+          <el-radio-button :value="true">已归档</el-radio-button>
+          <el-radio-button :value="null">全部</el-radio-button>
+        </el-radio-group>
+        <el-select v-model="filterClassId" placeholder="选择班级" clearable style="width: 150px;" @change="fetchHomeworks">
           <el-option v-for="cls in classes" :key="cls.id" :label="cls.name" :value="cls.id" />
         </el-select>
-        <el-select v-model="filterSubjectId" placeholder="选择科目" clearable @change="fetchHomeworks">
+        <el-select v-model="filterSubjectId" placeholder="选择科目" clearable style="width: 140px;" @change="fetchHomeworks">
           <el-option v-for="sub in subjects" :key="sub.id" :label="sub.name" :value="sub.id" />
         </el-select>
         <el-button @click="resetFilters">重置</el-button>
       </div>
 
-      <el-table :data="homeworks" v-loading="loading" stripe>
-        <el-table-column prop="title" label="作业标题" min-width="150" />
-        <el-table-column prop="class_name" label="班级" width="120" />
-        <el-table-column prop="subject_name" label="科目" width="100" />
-        <el-table-column prop="due_date" label="截止日期" width="160">
+      <el-table :data="homeworks" v-loading="loading" stripe :row-class-name="rowClassName">
+        <el-table-column prop="title" label="作业标题" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="class_name" label="班级" width="110" />
+        <el-table-column prop="subject_name" label="科目" width="90">
+          <template #default="{ row }">{{ row.subject_name || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="120">
           <template #default="{ row }">
-            {{ formatDate(row.due_date) }}
+            <el-tag :type="statusMeta(row.due_status).type" size="small" :effect="row.due_status === 'due_soon' ? 'dark' : 'light'">
+              {{ statusMeta(row.due_status).label }}
+            </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="creator_name" label="发布人" width="100" />
+        <el-table-column prop="due_date" label="截止日期" width="170">
+          <template #default="{ row }">
+            <div>{{ formatDate(row.due_date) }}</div>
+            <div v-if="remainingText(row)" class="remaining" :class="row.due_status">{{ remainingText(row) }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column prop="creator_name" label="发布人" width="90" />
         <el-table-column prop="created_at" label="发布时间" width="160">
           <template #default="{ row }">
             {{ formatDate(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" v-if="!isStudent">
+        <el-table-column label="操作" width="230" v-if="!isStudent">
           <template #default="{ row }">
             <el-button size="small" type="primary" @click="viewHomework(row)">查看</el-button>
+            <el-button v-if="!row.is_archived" size="small" type="success" plain @click="toggleArchive(row, true)">归档</el-button>
+            <el-button v-else size="small" type="info" plain @click="toggleArchive(row, false)">取消归档</el-button>
             <el-button size="small" type="danger" @click="deleteHomework(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -129,6 +146,8 @@ const pageSize = ref(20)
 
 const filterClassId = ref(null)
 const filterSubjectId = ref(null)
+// 默认只看未归档（进行中的作业）；true=已归档；null=全部
+const archiveFilter = ref(false)
 
 const dialogVisible = ref(false)
 const dialogMode = ref('add')
@@ -144,6 +163,29 @@ const form = ref({
   subject_id: null,
   due_date: null
 })
+
+const STATUS_META = {
+  archived: { label: '已归档', type: 'info' },
+  overdue: { label: '已截止', type: 'danger' },
+  due_soon: { label: '即将截止', type: 'warning' },
+  ongoing: { label: '进行中', type: 'success' },
+  no_due: { label: '未设截止', type: '' }
+}
+
+const statusMeta = (status) => STATUS_META[status] || { label: '—', type: 'info' }
+
+// 截止剩余时间副文本（即将截止/进行中显示）
+const remainingText = (row) => {
+  if (row.is_archived || !row.due_date) return ''
+  const ms = new Date(row.due_date) - new Date()
+  if (ms < 0) return '已超时'
+  const hours = Math.floor(ms / 3600000)
+  if (hours < 24) return `剩 ${hours} 小时`
+  const days = Math.floor(hours / 24)
+  return `剩 ${days} 天`
+}
+
+const rowClassName = ({ row }) => (row.is_archived ? 'archived-row' : '')
 
 const fetchClasses = async () => {
   try {
@@ -172,7 +214,8 @@ const fetchHomeworks = async () => {
     }
     if (filterClassId.value) params.class_id = filterClassId.value
     if (filterSubjectId.value) params.subject_id = filterSubjectId.value
-    
+    if (archiveFilter.value !== null) params.archived = archiveFilter.value
+
     const res = await api.get('/homeworks', { params })
     homeworks.value = res.data.data
     total.value = res.data.total
@@ -186,6 +229,7 @@ const fetchHomeworks = async () => {
 const resetFilters = () => {
   filterClassId.value = null
   filterSubjectId.value = null
+  archiveFilter.value = false
   fetchHomeworks()
 }
 
@@ -206,19 +250,19 @@ const submitForm = async () => {
     ElMessage.warning('请填写标题和选择班级')
     return
   }
-  
+
   submitting.value = true
   try {
     const data = {
       ...form.value,
       due_date: form.value.due_date ? new Date(form.value.due_date).toISOString() : null
     }
-    
+
     if (dialogMode.value === 'add') {
       await api.post('/homeworks', data)
       ElMessage.success('作业发布成功')
     }
-    
+
     dialogVisible.value = false
     fetchHomeworks()
   } catch (e) {
@@ -235,6 +279,21 @@ const viewHomework = async (row) => {
     detailVisible.value = true
   } catch (e) {
     ElMessage.error('获取作业详情失败')
+  }
+}
+
+const toggleArchive = async (row, archived) => {
+  try {
+    if (archived) {
+      await ElMessageBox.confirm(`确定归档「${row.title}」吗？归档表示已检查完成，默认列表将不再显示。`, '归档作业', { type: 'info' })
+    }
+    await api.put(`/homeworks/${row.id}/archive`, { is_archived: archived })
+    ElMessage.success(archived ? '已归档' : '已取消归档')
+    fetchHomeworks()
+  } catch (e) {
+    if (e !== 'cancel') {
+      ElMessage.error('操作失败：' + (e.response?.data?.detail || '未知错误'))
+    }
   }
 }
 
@@ -266,5 +325,12 @@ onMounted(() => {
 <style scoped>
 .homework-container { padding: 20px; }
 .card-header { display: flex; justify-content: space-between; align-items: center; font-size: 18px; font-weight: bold; }
-.filter-row { display: flex; gap: 10px; margin-bottom: 20px; }
+.filter-row { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+
+.remaining { font-size: 12px; color: #909399; margin-top: 2px; }
+.remaining.due_soon { color: #e6a23c; font-weight: bold; }
+.remaining.ongoing { color: #67c23a; }
+
+:deep(.archived-row) { color: #c0c4cc; }
+:deep(.archived-row .el-tag) { opacity: 0.6; }
 </style>

@@ -18,7 +18,9 @@ class Settings(BaseSettings):
     PARENT_HOST: str = "0.0.0.0"
     PARENT_PORT: int = 5174
     # 数据库 / 安全
-    DATABASE_URL: str = "postgresql://ddclass_user:your_password@127.0.0.1:5432/ddclass"
+    # 默认 SQLite（零依赖快速体验）；生产建议 PostgreSQL：
+    #   postgresql://ddclass_user:密码@127.0.0.1:5432/ddclass
+    DATABASE_URL: str = f"sqlite:///{(BASE_DIR / 'ddclass.db').as_posix()}"
     SECRET_KEY: str = "your-super-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24

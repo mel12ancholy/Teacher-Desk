@@ -78,9 +78,80 @@ class Subject(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False, unique=True)
+    # 科目默认满分（公共配置；考试类型/场次可覆盖，见 ExamTypeFullScore / ExamFullScore）
+    full_score = Column(Float, nullable=False, default=100)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     scores = relationship("Score", back_populates="subject")
+
+
+class ExamTypeFullScore(Base):
+    """按考试类型的科目默认满分（如 数学×模拟考试=150，平时数学=100）
+
+    解析优先级：场次实例(ExamFullScore) > 本表 > Subject.full_score > 100
+    """
+    __tablename__ = "exam_type_full_scores"
+
+    id = Column(Integer, primary_key=True, index=True)
+    subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False)
+    exam_type = Column(String, nullable=False)
+    full_score = Column(Float, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    subject = relationship("Subject", backref="exam_type_full_scores")
+
+    __table_args__ = (
+        UniqueConstraint('subject_id', 'exam_type', name='uq_exam_type_full_score'),
+    )
+
+
+class ExamFullScore(Base):
+    """某场考试某科目的实际满分（批量导入时按解析结果物化，事后可修改）
+
+    一场考试 = 考试类型 + 日期（与成绩分析的考试聚合口径一致），按班级隔离。
+    """
+    __tablename__ = "exam_full_scores"
+
+    id = Column(Integer, primary_key=True, index=True)
+    class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
+    subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False)
+    exam_type = Column(String, nullable=False)
+    exam_date = Column(Date, nullable=False)
+    full_score = Column(Float, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    class_obj = relationship("Class", backref="exam_full_scores")
+    subject = relationship("Subject", backref="exam_full_scores")
+
+    __table_args__ = (
+        UniqueConstraint('class_id', 'subject_id', 'exam_type', 'exam_date', name='uq_exam_full_score'),
+    )
+
+
+class GradeSubjectAverage(Base):
+    """年级单科平均分（人工录入，供跨班/联考参照；本系统通常只有一个班的数据无法自动算出）
+
+    一场考试 = 考试类型 + 日期；按 (学期, 考试类型, 日期, 科目) 唯一。
+    展示处按唯一键联查带出，不回写成绩行。
+    """
+    __tablename__ = "grade_subject_averages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    semester = Column(String, nullable=False)
+    exam_type = Column(String, nullable=False)
+    exam_date = Column(Date, nullable=False)
+    subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False)
+    avg_score = Column(Float, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    subject = relationship("Subject", backref="grade_averages")
+
+    __table_args__ = (
+        UniqueConstraint('semester', 'exam_type', 'exam_date', 'subject_id', name='uq_grade_avg'),
+    )
 
 class Score(Base):
     __tablename__ = "scores"
@@ -91,7 +162,7 @@ class Score(Base):
     class_id = Column(Integer, ForeignKey("classes.id"), nullable=False)
     score = Column(Float, nullable=False)
     exam_type = Column(String, default="midterm")
-    exam_date = Column(DateTime(timezone=True), nullable=True)
+    exam_date = Column(Date, nullable=True)
     semester = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -244,6 +315,9 @@ class Homework(Base):
     subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=True)
     due_date = Column(DateTime(timezone=True), nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    # 归档：检查完成后的收尾动作，归档后不再出现在默认列表与仪表盘
+    is_archived = Column(Boolean, nullable=False, default=False)
+    archived_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

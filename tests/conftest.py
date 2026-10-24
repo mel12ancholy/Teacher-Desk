@@ -58,10 +58,12 @@ _seed()
 
 @pytest.fixture(autouse=True)
 def _reset_rate_limiter():
-    """每个测试前后清空家长端限流器状态，避免用例间相互影响"""
-    ratelimit.limiter.clear()
+    """每个测试前后清空家长端/登录限流器状态，避免用例间相互影响"""
+    ratelimit.parent_limiter.clear()
+    ratelimit.login_limiter.clear()
     yield
-    ratelimit.limiter.clear()
+    ratelimit.parent_limiter.clear()
+    ratelimit.login_limiter.clear()
 
 
 @pytest.fixture(scope="session")
@@ -88,3 +90,13 @@ def teacher_headers(client):
 def parent_code():
     """有效的测试家长码（勿从本文件 import，会导致 conftest 二次执行）"""
     return PARENT_CODE
+
+
+@pytest.fixture()
+def db_session():
+    """测试内直接操作数据库的会话（同一 SQLite 库，用后不提交遗留由用例自行清理）"""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

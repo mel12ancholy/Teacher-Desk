@@ -1,6 +1,6 @@
 from pydantic import BaseModel, field_validator
 from typing import Optional, List
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 
 class UserRole(str, Enum):
@@ -126,18 +126,47 @@ class StudentListResponse(BaseModel):
 class SubjectCreate(BaseModel):
     name: str
     teacher_id: Optional[int] = None
+    full_score: Optional[float] = None
 
 class SubjectUpdate(BaseModel):
     name: Optional[str] = None
     teacher_id: Optional[int] = None
+    full_score: Optional[float] = None
 
 class SubjectResponse(BaseModel):
     id: int
     name: str
     teacher_id: Optional[int] = None
+    full_score: float = 100
 
     class Config:
         from_attributes = True
+
+
+class ExamTypeFullScoreCreate(BaseModel):
+    """按考试类型设置科目默认满分（subject_id + exam_type 唯一，重复提交覆盖）"""
+    subject_id: int
+    exam_type: str
+    full_score: float
+
+class ExamTypeFullScoreResponse(BaseModel):
+    id: int
+    subject_id: int
+    subject_name: Optional[str] = None
+    exam_type: str
+    full_score: float
+
+    class Config:
+        from_attributes = True
+
+
+class ExamFullScoreUpsert(BaseModel):
+    """设置某场考试某科目的实际满分（场次实例级，优先级最高）"""
+    class_id: int
+    subject_id: int
+    exam_type: str
+    exam_date: str
+    full_score: float
 
 class SemesterCreate(BaseModel):
     name: str
@@ -183,8 +212,10 @@ class ScoreResponse(ScoreBase):
     student_name: Optional[str] = None
     subject_name: Optional[str] = None
     class_name: Optional[str] = None
-    exam_date: Optional[datetime] = None
+    exam_date: Optional[date] = None
     created_at: Optional[datetime] = None
+    # 该条成绩的生效满分（三层模型解析：场次>考试类型>科目默认>100），供前端按得分率分档
+    full_score: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -566,6 +597,9 @@ class HomeworkResponse(HomeworkBase):
     class_name: Optional[str] = None
     subject_name: Optional[str] = None
     creator_name: Optional[str] = None
+    is_archived: bool = False
+    # 截止状态：archived / overdue / due_soon / ongoing / no_due（后端按当前时间计算）
+    due_status: Optional[str] = None
 
     class Config:
         from_attributes = True

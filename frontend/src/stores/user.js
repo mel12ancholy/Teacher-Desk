@@ -8,6 +8,9 @@ export const useUserStore = defineStore('user', () => {
   const systemSettings = ref(JSON.parse(localStorage.getItem('system_settings') || 'null'))
   // 当前角色被隐藏的页面列表（页面访问配置，后端下发）
   const hiddenPages = ref(JSON.parse(localStorage.getItem('hidden_pages') || '[]'))
+  // 配置是否已初始化：登录或 Layout 挂载拉取过至少一次。
+  // 路由守卫只在初始化后才按配置拦截，避免整页刷新时用旧值把深链接误弹回仪表盘。
+  const pageAccessLoaded = ref(localStorage.getItem('hidden_pages') !== null)
 
   const isLoggedIn = computed(() => !!token.value)
   const isAdmin = computed(() => userInfo.value?.role === 'admin')
@@ -26,6 +29,8 @@ export const useUserStore = defineStore('user', () => {
       localStorage.setItem('hidden_pages', JSON.stringify(hiddenPages.value))
     } catch (e) {
       console.error('获取页面访问配置失败', e)
+    } finally {
+      pageAccessLoaded.value = true
     }
   }
 
@@ -81,6 +86,7 @@ export const useUserStore = defineStore('user', () => {
     userInfo,
     systemSettings,
     hiddenPages,
+    pageAccessLoaded,
     isLoggedIn,
     isAdmin,
     isClassTeacher,

@@ -29,10 +29,52 @@ def get_user_class_ids(user: User) -> List[int]:
     return []
 
 
+def _due_status(h: Homework) -> str:
+    """截止状态：归档 > 已截止 > 即将截止(24h内) > 进行中 > 无截止时间"""
+    if h.is_archived:
+        return "archived"
+    if not h.due_date:
+        return "no_due"
+    due = h.due_date
+    if due.tzinfo is not None:
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
+    else:
+        now = datetime.now()
+    if due < now:
+        return "overdue"
+    if (due - now).total_seconds() <= 24 * 3600:
+        return "due_soon"
+    return "ongoing"
+
+
+def _to_response(h: Homework, db: Session) -> HomeworkResponse:
+    class_obj = db.query(Class).filter(Class.id == h.class_id).first()
+    subject_obj = db.query(Subject).filter(Subject.id == h.subject_id).first() if h.subject_id else None
+    creator = db.query(User).filter(User.id == h.created_by).first()
+    return HomeworkResponse(
+        id=h.id,
+        title=h.title,
+        content=h.content,
+        class_id=h.class_id,
+        subject_id=h.subject_id,
+        due_date=h.due_date,
+        created_by=h.created_by,
+        created_at=h.created_at,
+        updated_at=h.updated_at,
+        class_name=class_obj.name if class_obj else None,
+        subject_name=subject_obj.name if subject_obj else None,
+        creator_name=creator.real_name if creator else None,
+        is_archived=h.is_archived,
+        due_status=_due_status(h)
+    )
+
+
 @router.get("", response_model=HomeworkListResponse)
 def get_homeworks(
     class_id: Optional[int] = None,
     subject_id: Optional[int] = None,
+    archived: Optional[bool] = Query(None, description="按归档状态筛选：false=未归档（默认视图），true=已归档，不传=全部"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -56,31 +98,40 @@ def get_homeworks(
     if subject_id:
         query = query.filter(Homework.subject_id == subject_id)
 
+    if archived is not None:
+        query = query.filter(Homework.is_archived == archived)
+
     total = query.count()
-    homeworks = query.order_by(desc(Homework.created_at)).offset((page-1)*page_size).limit(page_size).all()
+    # 未归档在前，同类内截止时间近的在前（无截止的按发布时间倒序垫底）
+    homeworks = query.order_by(
+        Homework.is_archived.asc(),
+        Homework.due_date.asc().nullslast(),
+        Homework.created_at.desc()
+    ).offset((page-1)*page_size).limit(page_size).all()
 
-    result = []
-    for h in homeworks:
-        class_obj = db.query(Class).filter(Class.id == h.class_id).first()
-        subject_obj = db.query(Subject).filter(Subject.id == h.subject_id).first() if h.subject_id else None
-        creator = db.query(User).filter(User.id == h.created_by).first()
+    return HomeworkListResponse(total=total, data=[_to_response(h, db) for h in homeworks])
 
-        result.append(HomeworkResponse(
-            id=h.id,
-            title=h.title,
-            content=h.content,
-            class_id=h.class_id,
-            subject_id=h.subject_id,
-            due_date=h.due_date,
-            created_by=h.created_by,
-            created_at=h.created_at,
-            updated_at=h.updated_at,
-            class_name=class_obj.name if class_obj else None,
-            subject_name=subject_obj.name if subject_obj else None,
-            creator_name=creator.real_name if creator else None
-        ))
 
-    return HomeworkListResponse(total=total, data=result)
+@router.put("/{homework_id}/archive", response_model=HomeworkResponse)
+def archive_homework(
+    homework_id: int,
+    data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """归档 / 取消归档（body: {"is_archived": true|false}），表示检查完成收尾"""
+    if not is_staff(current_user):
+        raise HTTPException(status_code=403, detail="只有教师可以归档作业")
+
+    homework = db.query(Homework).filter(Homework.id == homework_id).first()
+    if not homework:
+        raise HTTPException(status_code=404, detail="作业不存在")
+
+    homework.is_archived = bool(data.get("is_archived", True))
+    homework.archived_at = datetime.now() if homework.is_archived else None
+    db.commit()
+    db.refresh(homework)
+    return _to_response(homework, db)
 
 
 @router.get("/{homework_id}", response_model=HomeworkResponse)
@@ -97,24 +148,7 @@ def get_homework(
     if current_user.role != 'admin' and h.class_id not in allowed_class_ids:
         raise HTTPException(status_code=403, detail="无权访问该作业")
 
-    class_obj = db.query(Class).filter(Class.id == h.class_id).first()
-    subject_obj = db.query(Subject).filter(Subject.id == h.subject_id).first() if h.subject_id else None
-    creator = db.query(User).filter(User.id == h.created_by).first()
-
-    return HomeworkResponse(
-        id=h.id,
-        title=h.title,
-        content=h.content,
-        class_id=h.class_id,
-        subject_id=h.subject_id,
-        due_date=h.due_date,
-        created_by=h.created_by,
-        created_at=h.created_at,
-        updated_at=h.updated_at,
-        class_name=class_obj.name if class_obj else None,
-        subject_name=subject_obj.name if subject_obj else None,
-        creator_name=creator.real_name if creator else None
-    )
+    return _to_response(h, db)
 
 
 @router.post("", response_model=HomeworkResponse)
@@ -142,22 +176,7 @@ def create_homework(
     db.commit()
     db.refresh(homework)
 
-    subject_obj = db.query(Subject).filter(Subject.id == homework.subject_id).first() if homework.subject_id else None
-
-    return HomeworkResponse(
-        id=homework.id,
-        title=homework.title,
-        content=homework.content,
-        class_id=homework.class_id,
-        subject_id=homework.subject_id,
-        due_date=homework.due_date,
-        created_by=homework.created_by,
-        created_at=homework.created_at,
-        updated_at=homework.updated_at,
-        class_name=class_obj.name,
-        subject_name=subject_obj.name if subject_obj else None,
-        creator_name=current_user.real_name
-    )
+    return _to_response(homework, db)
 
 
 @router.put("/{homework_id}", response_model=HomeworkResponse)
@@ -186,24 +205,7 @@ def update_homework(
     db.commit()
     db.refresh(homework)
 
-    class_obj = db.query(Class).filter(Class.id == homework.class_id).first()
-    subject_obj = db.query(Subject).filter(Subject.id == homework.subject_id).first() if homework.subject_id else None
-    creator = db.query(User).filter(User.id == homework.created_by).first()
-
-    return HomeworkResponse(
-        id=homework.id,
-        title=homework.title,
-        content=homework.content,
-        class_id=homework.class_id,
-        subject_id=homework.subject_id,
-        due_date=homework.due_date,
-        created_by=homework.created_by,
-        created_at=homework.created_at,
-        updated_at=homework.updated_at,
-        class_name=class_obj.name if class_obj else None,
-        subject_name=subject_obj.name if subject_obj else None,
-        creator_name=creator.real_name if creator else None
-    )
+    return _to_response(homework, db)
 
 
 @router.delete("/{homework_id}")

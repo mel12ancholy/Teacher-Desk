@@ -7,6 +7,7 @@ from app.models import User
 from app.schemas import Token, UserCreate, UserResponse, ProfileUpdate
 from app.auth import verify_password, get_password_hash, create_access_token, get_current_active_user
 from app.config import settings
+from app.permissions import is_admin
 from app.services import LogService
 
 router = APIRouter(prefix="/api/auth", tags=["认证"])
@@ -48,7 +49,19 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.post("/register", response_model=UserResponse)
-def register(user_data: UserCreate, db: Session = Depends(get_db)):
+def register(
+    user_data: UserCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """创建用户（仅管理员）。
+
+    历史版本此接口无认证开放且可指定任意角色（含 admin），存在提权风险；
+    日常创建用户请使用「用户管理」页面（POST /api/users，同样仅管理员）。
+    """
+    if not is_admin(current_user):
+        raise HTTPException(status_code=403, detail="只有管理员可以创建用户，请使用「用户管理」页面")
+
     existing_user = db.query(User).filter(User.username == user_data.username).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Username already registered")

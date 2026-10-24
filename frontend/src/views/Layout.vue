@@ -61,10 +61,6 @@
           <el-icon><Calendar /></el-icon>
           <template #title>考勤管理</template>
         </el-menu-item>
-        <el-menu-item index="/rankings" v-if="userStore.isPageVisible('/rankings')">
-          <el-icon><TrendCharts /></el-icon>
-          <template #title>班级排名</template>
-        </el-menu-item>
         <el-menu-item index="/analysis" v-if="userStore.isPageVisible('/analysis')">
           <el-icon><TrendCharts /></el-icon>
           <template #title>成绩分析</template>
@@ -244,9 +240,15 @@ const currentRouteName = computed(() => {
   return routeMap[route.path] || '页面'
 })
 
-onMounted(() => {
-  // 刷新页面访问配置（localStorage 缓存仅作首屏兜底）
-  userStore.fetchPageAccess()
+onMounted(async () => {
+  // 刷新页面访问配置（localStorage 缓存仅作首屏兜底）。
+  // 拉取完成后若发现当前页对本角色已隐藏（配置在别处被修改过），主动跳回仪表盘
+  await userStore.fetchPageAccess()
+  const current = route.path
+  if (current !== '/dashboard' && !userStore.isPageVisible(current) &&
+      !(userStore.isAdmin && current === '/page-access')) {
+    router.push('/dashboard')
+  }
 })
 
 const toggleCollapse = () => {

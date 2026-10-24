@@ -1,11 +1,12 @@
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import User, Subject, ClassSubject, Teacher, Score, Class, UserRole
+from app.models import User, Subject, ClassSubject, Teacher, Score, Class, ExamTypeFullScore, UserRole
 from app.schemas import (
     SubjectCreate, SubjectUpdate, SubjectResponse,
-    ClassSubjectCreate, ClassSubjectUpdate, ClassSubjectResponse
+    ClassSubjectCreate, ClassSubjectUpdate, ClassSubjectResponse,
+    ExamTypeFullScoreCreate, ExamTypeFullScoreResponse
 )
 from app.auth import get_current_active_user
 from app.routers.classes import get_accessible_class_ids
@@ -78,7 +79,11 @@ def create_subject(
     if existing:
         raise HTTPException(status_code=400, detail="科目已存在")
 
-    subject = Subject(name=name)
+    full_score = subject_data.full_score if subject_data.full_score else 100
+    if full_score <= 0:
+        raise HTTPException(status_code=400, detail="满分必须大于 0")
+
+    subject = Subject(name=name, full_score=full_score)
     try:
         db.add(subject)
         db.commit()
@@ -96,7 +101,7 @@ def update_subject(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """修改标准科目名称（仅管理员）；不能改成已存在的科目名。
+    """修改标准科目名称/默认满分（仅管理员）；不能改成已存在的科目名。
     成绩表和班级科目配置均通过 subject_id 外键关联，改名后所有引用处自动显示新名称。"""
     if current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="只有管理员可以修改科目")
@@ -105,9 +110,20 @@ def update_subject(
     if not subject:
         raise HTTPException(status_code=404, detail="科目不存在")
 
+    if data.full_score is not None:
+        if data.full_score <= 0:
+            raise HTTPException(status_code=400, detail="满分必须大于 0")
+        subject.full_score = data.full_score
+
     name = (data.name or "").strip()
     if not name:
-        raise HTTPException(status_code=400, detail="科目名称不能为空")
+        try:
+            db.commit()
+            db.refresh(subject)
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"修改科目失败: {str(e)}")
+        return subject
     if name == subject.name:
         return subject
 
@@ -293,3 +309,89 @@ def delete_class_subject(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"删除班级科目配置失败: {str(e)}")
     return {"message": "班级科目配置删除成功"}
+
+
+# ==================== 考试类型满分配置 ====================
+
+def _admin_only(current_user: User):
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="只有管理员可以管理满分配置")
+
+
+@router.get("/exam-type-full-scores", response_model=List[ExamTypeFullScoreResponse])
+def list_exam_type_full_scores(
+    subject_id: Optional[int] = Query(None, description="按科目筛选"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """查询按考试类型配置的科目默认满分"""
+    query = db.query(ExamTypeFullScore)
+    if subject_id:
+        query = query.filter(ExamTypeFullScore.subject_id == subject_id)
+    rows = query.order_by(ExamTypeFullScore.subject_id, ExamTypeFullScore.exam_type).all()
+    result = []
+    for r in rows:
+        subject = db.query(Subject).filter(Subject.id == r.subject_id).first()
+        result.append(ExamTypeFullScoreResponse(
+            id=r.id, subject_id=r.subject_id,
+            subject_name=subject.name if subject else None,
+            exam_type=r.exam_type, full_score=r.full_score
+        ))
+    return result
+
+
+@router.post("/exam-type-full-scores", response_model=ExamTypeFullScoreResponse)
+def upsert_exam_type_full_score(
+    data: ExamTypeFullScoreCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """设置「科目 × 考试类型」的默认满分（幂等覆盖），如：数学×模拟考试=150"""
+    _admin_only(current_user)
+
+    subject = db.query(Subject).filter(Subject.id == data.subject_id).first()
+    if not subject:
+        raise HTTPException(status_code=404, detail="科目不存在")
+    exam_type = (data.exam_type or "").strip()
+    if not exam_type:
+        raise HTTPException(status_code=400, detail="考试类型不能为空")
+    if data.full_score <= 0:
+        raise HTTPException(status_code=400, detail="满分必须大于 0")
+
+    row = db.query(ExamTypeFullScore).filter(
+        ExamTypeFullScore.subject_id == data.subject_id,
+        ExamTypeFullScore.exam_type == exam_type
+    ).first()
+    if row:
+        row.full_score = data.full_score
+    else:
+        row = ExamTypeFullScore(
+            subject_id=data.subject_id, exam_type=exam_type, full_score=data.full_score
+        )
+        db.add(row)
+    try:
+        db.commit()
+        db.refresh(row)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"保存满分配置失败: {str(e)}")
+    return ExamTypeFullScoreResponse(
+        id=row.id, subject_id=row.subject_id, subject_name=subject.name,
+        exam_type=row.exam_type, full_score=row.full_score
+    )
+
+
+@router.delete("/exam-type-full-scores/{config_id}")
+def delete_exam_type_full_score(
+    config_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """删除考试类型满分配置（该科该类型回落到科目默认满分）"""
+    _admin_only(current_user)
+    row = db.query(ExamTypeFullScore).filter(ExamTypeFullScore.id == config_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="配置不存在")
+    db.delete(row)
+    db.commit()
+    return {"message": "已删除，该科该考试类型回落到科目默认满分"}

@@ -101,6 +101,10 @@
         <el-form-item label="科目名称" prop="name">
           <el-input v-model="subjectForm.name" placeholder="如: 数学" />
         </el-form-item>
+        <el-form-item label="默认满分" prop="full_score">
+          <el-input-number v-model="subjectForm.full_score" :min="1" :max="300" :step="10" />
+          <span class="standard-tip" style="margin-left: 8px;">成绩录入/导入的上限，及格线按满分 60% 折算</span>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="subjectDialogVisible = false">取消</el-button>
@@ -112,11 +116,19 @@
     <div class="standard-card" v-if="userStore.isAdmin">
       <div class="standard-header">
         <h3 class="standard-title">标准科目管理（{{ subjects.length }}）</h3>
-        <span class="standard-tip">被成绩或班级科目配置引用的科目无法删除；改名后所有引用处自动更新</span>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="standard-tip">默认满分用于成绩校验与得分率折算，可被考试类型/场次级配置覆盖</span>
+          <el-button type="warning" size="small" @click="openExamTypeDialog">考试类型满分</el-button>
+        </div>
       </div>
       <el-table :data="subjects" style="width: 100%" size="small">
         <el-table-column prop="id" label="ID" width="70" />
         <el-table-column prop="name" label="科目名称" min-width="140" />
+        <el-table-column label="默认满分" width="100" align="center">
+          <template #default="{ row }">
+            <span class="full-score">{{ row.full_score ?? 100 }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="创建时间" width="170">
           <template #default="{ row }">
             {{ formatDate(row.created_at) }}
@@ -130,6 +142,43 @@
         </el-table-column>
       </el-table>
     </div>
+
+    <!-- 考试类型满分配置（科目 × 考试类型） -->
+    <el-dialog v-model="examTypeDialogVisible" title="考试类型满分配置" width="640px">
+      <el-alert type="info" :closable="false" style="margin-bottom: 12px;"
+        title="为「科目 × 考试类型」设置默认满分（如：数学×模拟考试=150）。导入成绩时按 科目默认 → 考试类型默认 → 场次实例 的顺序生效。" />
+      <el-form :inline="true" style="margin-bottom: 8px;">
+        <el-form-item label="科目">
+          <el-select v-model="examTypeForm.subject_id" placeholder="选择科目" style="width: 140px;">
+            <el-option v-for="s in subjects" :key="s.id" :label="s.name" :value="s.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="考试类型">
+          <el-select v-model="examTypeForm.exam_type" placeholder="选择或输入" filterable allow-create style="width: 140px;">
+            <el-option v-for="t in commonExamTypes" :key="t" :label="t" :value="t" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="满分">
+          <el-input-number v-model="examTypeForm.full_score" :min="1" :max="300" style="width: 120px;" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="handleUpsertExamTypeFullScore">保存</el-button>
+        </el-form-item>
+      </el-form>
+      <el-table :data="examTypeFullScores" size="small" border stripe max-height="320">
+        <el-table-column prop="subject_name" label="科目" width="110" />
+        <el-table-column prop="exam_type" label="考试类型" width="120" />
+        <el-table-column prop="full_score" label="满分" width="80" align="center" />
+        <el-table-column label="操作" width="90" align="center">
+          <template #default="{ row }">
+            <el-button type="danger" size="small" @click="handleDeleteExamTypeFullScore(row)">删除</el-button>
+          </template>
+        </el-table-column>
+        <template #empty>
+          <el-empty description="暂无考试类型满分配置，全部按科目默认满分" :image-size="50" />
+        </template>
+      </el-table>
+    </el-dialog>
   </div>
 </template>
 
@@ -170,8 +219,15 @@ const form = reactive({
 })
 
 const subjectForm = reactive({
-  name: ''
+  name: '',
+  full_score: 100
 })
+
+// 考试类型满分配置
+const examTypeDialogVisible = ref(false)
+const examTypeFullScores = ref([])
+const commonExamTypes = ['期中考试', '期末考试', '月考', '测验', '模拟考试']
+const examTypeForm = reactive({ subject_id: null, exam_type: '', full_score: 100 })
 
 const rules = {
   subject_id: [{ required: true, message: '请选择标准科目', trigger: 'change' }]
@@ -313,6 +369,7 @@ const handleAddSubject = () => {
   isEditSubject.value = false
   editingSubjectRowId.value = null
   subjectForm.name = ''
+  subjectForm.full_score = 100
   subjectDialogVisible.value = true
 }
 
@@ -320,6 +377,7 @@ const handleEditSubject = (row) => {
   isEditSubject.value = true
   editingSubjectRowId.value = row.id
   subjectForm.name = row.name
+  subjectForm.full_score = row.full_score ?? 100
   subjectDialogVisible.value = true
 }
 
@@ -348,10 +406,13 @@ const handleSubjectSubmit = async () => {
   subjectSaving.value = true
   try {
     if (isEditSubject.value) {
-      await api.subjects.update(editingSubjectRowId.value, { name: subjectForm.name })
+      await api.subjects.update(editingSubjectRowId.value, {
+        name: subjectForm.name,
+        full_score: subjectForm.full_score
+      })
       ElMessage.success('标准科目修改成功，相关成绩与配置将自动显示新名称')
     } else {
-      await api.subjects.create({ name: subjectForm.name })
+      await api.subjects.create({ name: subjectForm.name, full_score: subjectForm.full_score })
       ElMessage.success('标准科目新增成功')
     }
     subjectDialogVisible.value = false
@@ -361,6 +422,47 @@ const handleSubjectSubmit = async () => {
     console.error('保存标准科目失败:', e)
   } finally {
     subjectSaving.value = false
+  }
+}
+
+// ===== 考试类型满分 =====
+const loadExamTypeFullScores = async () => {
+  try {
+    examTypeFullScores.value = (await api.subjects.listExamTypeFullScores()) || []
+  } catch (e) {
+    console.error('查询考试类型满分失败', e)
+  }
+}
+
+const openExamTypeDialog = () => {
+  examTypeForm.subject_id = subjects.value[0]?.id || null
+  examTypeForm.exam_type = ''
+  examTypeForm.full_score = 100
+  loadExamTypeFullScores()
+  examTypeDialogVisible.value = true
+}
+
+const handleUpsertExamTypeFullScore = async () => {
+  if (!examTypeForm.subject_id || !examTypeForm.exam_type) {
+    ElMessage.warning('请选择科目和考试类型')
+    return
+  }
+  try {
+    await api.subjects.upsertExamTypeFullScore({ ...examTypeForm })
+    ElMessage.success('已保存')
+    loadExamTypeFullScores()
+  } catch (e) {
+    console.error('保存考试类型满分失败', e)
+  }
+}
+
+const handleDeleteExamTypeFullScore = async (row) => {
+  try {
+    await api.subjects.deleteExamTypeFullScore(row.id)
+    ElMessage.success('已删除，该组合回落到科目默认满分')
+    loadExamTypeFullScores()
+  } catch (e) {
+    console.error('删除考试类型满分失败', e)
   }
 }
 

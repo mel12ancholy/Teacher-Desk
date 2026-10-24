@@ -2,16 +2,7 @@
   <div class="scores">
     <div class="page-header">
       <h1 class="page-title">成绩管理</h1>
-      <div>
-        <el-select v-model="filterClassId" placeholder="选择班级" clearable style="width: 150px; margin-right: 10px;" @change="loadScores">
-          <el-option v-for="c in classes" :key="c.id" :label="c.name" :value="c.id" />
-        </el-select>
-        <el-select v-model="filterSubjectId" placeholder="选择科目" clearable style="width: 150px; margin-right: 10px;" @change="loadScores">
-          <el-option v-for="s in filterSubjectOptions" :key="s.id" :label="s.name" :value="s.id" />
-        </el-select>
-        <el-select v-model="filterSemester" placeholder="选择学期" clearable style="width: 120px; margin-right: 10px;" @change="loadScores">
-          <el-option v-for="s in semesters" :key="s.id" :label="s.name" :value="s.name" />
-        </el-select>
+      <div class="header-actions">
         <el-button type="primary" @click="handleAdd">
           <el-icon><Plus /></el-icon>
           录入成绩
@@ -20,35 +11,66 @@
           <el-icon><Upload /></el-icon>
           批量导入
         </el-button>
+        <el-divider direction="vertical" />
         <el-button type="info" @click="handleOpenAnalysis">
           <el-icon><DataAnalysis /></el-icon>
           成绩分析
         </el-button>
-        <el-button type="success" @click="handleExportScores" :loading="exportLoading">
+        <el-button type="warning" @click="showGradeAvgDialog = true">年级均分</el-button>
+        <el-button @click="handleExportScores" :loading="exportLoading">
           <el-icon><Download /></el-icon>
           导出成绩
         </el-button>
+        <el-divider direction="vertical" />
+        <el-button type="danger" plain @click="showBatchDeleteDialog = true">批量删除</el-button>
       </div>
     </div>
 
+    <el-card class="filter-card" shadow="never">
+      <div class="filter-bar">
+        <span class="filter-label">筛选：</span>
+        <el-select v-model="filterClassId" placeholder="选择班级" clearable style="width: 150px;" @change="loadScores">
+          <el-option v-for="c in classes" :key="c.id" :label="c.name" :value="c.id" />
+        </el-select>
+        <el-select v-model="filterSubjectId" placeholder="选择科目" clearable style="width: 150px;" @change="loadScores">
+          <el-option v-for="s in filterSubjectOptions" :key="s.id" :label="s.name" :value="s.id" />
+        </el-select>
+        <el-select v-model="filterSemester" placeholder="选择学期" clearable style="width: 120px;" @change="loadScores">
+          <el-option v-for="s in semesters" :key="s.id" :label="s.name" :value="s.name" />
+        </el-select>
+        <el-select v-model="filterExamType" placeholder="考试类型" clearable filterable allow-create style="width: 130px;" @change="loadScores">
+          <el-option v-for="t in commonExamTypes" :key="t" :label="t" :value="t" />
+        </el-select>
+      </div>
+    </el-card>
+
     <div class="statistics-card" v-if="statisticsData">
       <el-row :gutter="20">
-        <el-col :span="8">
+        <el-col :span="showGradeAvgCard ? 6 : 8">
           <div class="stat-item">
             <div class="stat-label">平均分</div>
             <div class="stat-value">{{ statisticsData.average.toFixed(1) }}</div>
           </div>
         </el-col>
-        <el-col :span="8">
+        <el-col :span="showGradeAvgCard ? 6 : 8">
           <div class="stat-item">
             <div class="stat-label">最高分</div>
             <div class="stat-value success">{{ statisticsData.max }}</div>
           </div>
         </el-col>
-        <el-col :span="8">
+        <el-col :span="showGradeAvgCard ? 6 : 8">
           <div class="stat-item">
             <div class="stat-label">最低分</div>
             <div class="stat-value danger">{{ statisticsData.min }}</div>
+          </div>
+        </el-col>
+        <el-col :span="6" v-if="showGradeAvgCard">
+          <div class="stat-item" :class="{ 'pending': gradeAvgInfo?.value == null }">
+            <div class="stat-label">年级平均（{{ gradeAvgInfo?.label || '' }}）</div>
+            <div v-if="gradeAvgInfo?.value != null" class="stat-value" style="color: #e6a23c;">{{ gradeAvgInfo.value }}</div>
+            <div v-else class="stat-value" style="color: #c0c4cc; font-size: 16px; cursor: pointer;" @click="openGradeAvgEntry">
+              待录入（点击录入）
+            </div>
           </div>
         </el-col>
       </el-row>
@@ -59,9 +81,11 @@
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="student_name" label="学生" />
         <el-table-column prop="subject_name" label="科目" />
-        <el-table-column prop="score" label="成绩" width="100">
+        <el-table-column prop="score" label="成绩" width="110">
           <template #default="{ row }">
-            <el-tag :type="getScoreType(row.score)">{{ row.score }}</el-tag>
+            <el-tag :type="getScoreType(row.score, row.full_score)">
+              {{ row.score }}<span v-if="row.full_score && row.full_score !== 100" class="score-full">/{{ row.full_score }}</span>
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="exam_type" label="考试类型" width="120" />
@@ -83,7 +107,7 @@
           </template>
         </el-table-column>
       </el-table>
-      
+
       <el-pagination
         v-model:current-page="page"
         v-model:page-size="pageSize"
@@ -96,187 +120,61 @@
       />
     </div>
 
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑成绩' : '录入成绩'" width="600px">
-      <el-form :model="form" :rules="rules" ref="formRef" label-width="100px">
-        <el-form-item label="学生" prop="student_id">
-          <el-select v-model="form.student_id" placeholder="选择学生" style="width: 100%;" filterable :disabled="isEdit">
-            <el-option v-for="s in students" :key="s.id" :label="`${s.name} (${s.class_name})`" :value="s.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="科目" prop="subject_id">
-          <el-select v-model="form.subject_id" placeholder="选择科目" style="width: 100%;" :disabled="!form.student_id">
-            <el-option v-for="s in formSubjectOptions" :key="s.id" :label="s.name" :value="s.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="成绩" prop="score">
-          <el-input-number v-model="form.score" :min="0" :max="100" :step="0.5" />
-        </el-form-item>
-        <el-form-item label="考试类型" prop="exam_type">
-          <el-select v-model="form.exam_type" style="width: 100%;" filterable allow-create placeholder="选择或输入考试类型">
-            <el-option label="期中考试" value="期中考试" />
-            <el-option label="期末考试" value="期末考试" />
-            <el-option label="月考" value="月考" />
-            <el-option label="测验" value="测验" />
-            <el-option label="模拟考试" value="模拟考试" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="考试日期" prop="exam_date">
-          <el-date-picker
-            v-model="form.exam_date"
-            type="datetime"
-            placeholder="选择考试日期"
-            format="YYYY-MM-DD HH:mm"
-            value-format="YYYY-MM-DDTHH:mm:ss"
-            style="width: 100%;"
-          />
-        </el-form-item>
-        <el-form-item label="学期" prop="semester">
-          <el-select v-model="form.semester" style="width: 100%;" placeholder="选择学期">
-            <el-option v-for="s in semesters" :key="s.id" :label="s.name" :value="s.name" />
-          </el-select>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确定</el-button>
-      </template>
-    </el-dialog>
+    <!-- 录入/编辑成绩 -->
+    <ScoreFormDialog
+      v-model="dialogVisible"
+      :is-edit="isEdit"
+      :editing-row="editingRow"
+      :students="students"
+      :subjects="subjects"
+      :semesters="semesters"
+      :classes="classes"
+      :default-class-id="filterClassId"
+      @submit="handleSubmit"
+    />
 
-    <el-dialog v-model="showBatchDialog" title="批量导入成绩" width="800px">
-      <div style="margin-bottom: 15px;">
-        <el-alert title="导入说明" type="info" :closable="false">
-          <ol style="margin: 10px 0 0 20px; padding: 0;">
-            <li>请先<strong>选择班级</strong>，再<strong>下载模板</strong>（模板列由该班级「成绩相关」的科目动态生成）</li>
-            <li>按模板格式填写学号和各科目成绩</li>
-            <li>成绩必须在0-100之间</li>
-            <li>Excel 中的等级列（如「语等」）、总分、总等、综等非成绩相关列会自动忽略</li>
-            <li>选择班级、考试类型、学期后，上传文件并点击"导入"</li>
-          </ol>
-        </el-alert>
-      </div>
-      <el-form :model="batchForm" label-width="100px">
-        <el-form-item label="选择班级">
-          <el-select v-model="batchForm.class_id" placeholder="选择班级" style="width: 100%;" @change="handleBatchClassChange">
-            <el-option v-for="c in classes" :key="c.id" :label="c.name" :value="c.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="考试类型">
-          <el-select v-model="batchForm.exam_type" style="width: 100%;">
-            <el-option label="期中考试" value="期中考试" />
-            <el-option label="期末考试" value="期末考试" />
-            <el-option label="月考" value="月考" />
-            <el-option label="测验" value="测验" />
-            <el-option label="模拟考试" value="模拟考试" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="考试日期">
-          <el-date-picker
-            v-model="batchForm.exam_date"
-            type="date"
-            placeholder="选择考试日期"
-            format="YYYY-MM-DD"
-            value-format="YYYY-MM-DDTHH:mm:ss"
-            style="width: 100%;"
-          />
-        </el-form-item>
-        <el-form-item label="选择学期">
-          <el-select v-model="batchForm.semester" placeholder="选择学期" style="width: 100%;">
-            <el-option v-for="s in semesters" :key="s.id" :label="s.name" :value="s.name" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="上传文件">
-          <el-upload
-            ref="uploadRef"
-            :auto-upload="false"
-            :limit="1"
-            :on-change="handleFileChange"
-            accept=".csv,.xlsx"
-            drag
-          >
-            <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
-            <div class="el-upload__text">
-              拖拽文件到此处或 <em>点击选择文件</em>
-            </div>
-            <template #tip>
-              <div class="el-upload__tip">支持CSV和Excel文件（.csv, .xlsx）</div>
-            </template>
-          </el-upload>
-        </el-form-item>
-        <el-form-item v-if="batchForm.scoreData">
-          <el-input
-            v-model="batchForm.scoreData"
-            type="textarea"
-            :rows="6"
-            placeholder="预览数据"
-            readonly
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="downloadTemplate">下载模板</el-button>
-        <el-button @click="showBatchDialog = false">取消</el-button>
-        <el-button type="primary" @click="handleBatchImport" :loading="batchLoading">导入</el-button>
-      </template>
-    </el-dialog>
+    <!-- 批量导入 -->
+    <ScoreBatchImportDialog
+      v-model="showBatchDialog"
+      :classes="classes"
+      :subjects="subjects"
+      :semesters="semesters"
+      @imported="loadScores"
+    />
 
-    <el-dialog v-model="showAnalysisDialog" title="成绩分析" width="90%" top="5vh">
-      <el-tabs v-model="activeAnalysisTab">
-        <el-tab-pane label="成绩分布" name="distribution">
-          <div class="analysis-container">
-            <div ref="distributionChartRef" class="chart-container"></div>
-          </div>
-        </el-tab-pane>
-        
-        <el-tab-pane label="各科目对比" name="subjects">
-          <div class="analysis-container">
-            <div ref="subjectsChartRef" class="chart-container"></div>
-          </div>
-        </el-tab-pane>
-        
-        <el-tab-pane label="学生排名" name="ranking">
-          <div class="analysis-container">
-            <el-table :data="studentRanking" size="small" border stripe>
-              <el-table-column prop="rank" label="排名" width="80" />
-              <el-table-column prop="student_name" label="学生姓名" />
-              <el-table-column prop="average_score" label="平均分" />
-              <el-table-column prop="total_score" label="总分" />
-              <el-table-column prop="subject_count" label="科目数" />
-            </el-table>
-          </div>
-        </el-tab-pane>
-        
-        <el-tab-pane label="成绩详情" name="details">
-          <div class="analysis-container">
-            <el-row :gutter="20" class="detail-stats">
-              <el-col :span="6">
-                <el-statistic title="优秀（90分以上）" :value="scoreDistribution.excellent" />
-              </el-col>
-              <el-col :span="6">
-                <el-statistic title="良好（80-89分）" :value="scoreDistribution.good" />
-              </el-col>
-              <el-col :span="6">
-                <el-statistic title="及格（60-79分）" :value="scoreDistribution.pass" />
-              </el-col>
-              <el-col :span="6">
-                <el-statistic title="不及格（60分以下）" :value="scoreDistribution.fail" />
-              </el-col>
-            </el-row>
-            <div ref="trendChartRef" class="chart-container"></div>
-          </div>
-        </el-tab-pane>
-      </el-tabs>
-    </el-dialog>
+    <!-- 年级均分录入 -->
+    <GradeAverageDialog
+      v-model="showGradeAvgDialog"
+      :semesters="semesters"
+      :score-subjects="scoreSubjectRows"
+      :preset-semester="filterSemester"
+      :preset-exam-type="filterExamType"
+      @saved="loadGradeAvg"
+    />
+
+    <!-- 批量删除 -->
+    <ScoreBatchDeleteDialog
+      v-model="showBatchDeleteDialog"
+      :classes="classes"
+      :semesters="semesters"
+      :subjects="subjects"
+      @deleted="loadScores"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, UploadFilled, Upload, DataAnalysis, Download } from '@element-plus/icons-vue'
+import { Plus, Upload, DataAnalysis, Download } from '@element-plus/icons-vue'
 import api from '@/api'
 import * as XLSX from 'xlsx'
-import * as echarts from 'echarts'
+import ScoreFormDialog from '@/components/scores/ScoreFormDialog.vue'
+import ScoreBatchImportDialog from '@/components/scores/ScoreBatchImportDialog.vue'
+import GradeAverageDialog from '@/components/scores/GradeAverageDialog.vue'
+import ScoreBatchDeleteDialog from '@/components/scores/ScoreBatchDeleteDialog.vue'
+import { useClassSubjects } from '@/composables/useClassSubjects'
 
 const router = useRouter()
 
@@ -286,86 +184,84 @@ const subjects = ref([])
 const semesters = ref([])
 const students = ref([])
 const loading = ref(false)
-const dialogVisible = ref(false)
-const isEdit = ref(false)
-const editingId = ref(null)
-const formRef = ref(null)
-const showBatchDialog = ref(false)
-const batchLoading = ref(false)
-const uploadRef = ref(null)
+const exportLoading = ref(false)
 
-// 班级科目配置缓存：classId -> 配置列表（成绩联动数据源）
-const classSubjectsCache = ref({})
+// 弹窗状态
+const dialogVisible = ref(false)
+const showBatchDialog = ref(false)
+const showGradeAvgDialog = ref(false)
+const showBatchDeleteDialog = ref(false)
+const isEdit = ref(false)
+const editingRow = ref(null)
+
+// 年级平均（选了科目才展示：当前筛选下该科目最近一场考试的录入值）
+const gradeAvgInfo = ref(null)
+const showGradeAvgCard = computed(() => !!filterSubjectId.value)
+
+// 当前班级的成绩相关科目（年级均分录入表格行；未选班级时回退全部科目）
+const scoreSubjectRows = computed(() => {
+  if (filterClassId.value) {
+    const rows = scoreSubjectsFor(filterClassId.value)
+    if (rows.length) return rows
+  }
+  return subjects.value || []
+})
+
+const loadGradeAvg = async () => {
+  gradeAvgInfo.value = null
+  if (!filterSubjectId.value || !scores.value.length) return
+  const rows = scores.value.filter(s => s.subject_id === filterSubjectId.value)
+  if (!rows.length) return
+  // 定位该科目最近一场考试（优先考试类型筛选内的最新日期）
+  const latest = rows.reduce((a, b) => {
+    const da = a.exam_date ? String(a.exam_date).slice(0, 10) : ''
+    const db = b.exam_date ? String(b.exam_date).slice(0, 10) : ''
+    return db >= da ? b : a
+  })
+  if (!latest.exam_date) return
+  try {
+    const list = await api.scores.getGradeAverages({
+      semester: latest.semester,
+      exam_type: latest.exam_type,
+      exam_date: String(latest.exam_date).slice(0, 10)
+    })
+    const hit = (list || []).find(x => x.subject_id === filterSubjectId.value)
+    gradeAvgInfo.value = {
+      value: hit ? hit.avg_score : null,
+      label: `${latest.exam_type}`,
+      semester: latest.semester,
+      exam_type: latest.exam_type
+    }
+  } catch (e) {
+    console.error('查询年级均分失败', e)
+  }
+}
+
+const openGradeAvgEntry = () => {
+  showGradeAvgDialog.value = true
+}
 
 const filterClassId = ref(null)
 const filterSubjectId = ref(null)
 const filterSemester = ref('')
+const filterExamType = ref('')
+const commonExamTypes = ['期中考试', '期末考试', '月考', '测验', '模拟考试']
 const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
 
-const form = reactive({
-  student_id: null,
-  subject_id: null,
-  class_id: null,
-  score: 0,
-  exam_type: '期中考试',
-  exam_date: null,
-  semester: ''
-})
+const statisticsData = ref(null)
 
-const batchForm = reactive({
-  class_id: null,
-  exam_type: '期中考试',
-  exam_date: null,
-  semester: '',
-  scoreData: '',
-  scoreList: []
-})
-
-// 确保指定班级的科目配置已加载（带缓存）
-const ensureClassSubjects = async (classId) => {
-  if (!classId) return []
-  if (!classSubjectsCache.value[classId]) {
-    try {
-      classSubjectsCache.value[classId] = (await api.subjects.getClassSubjects(classId)) || []
-    } catch (e) {
-      classSubjectsCache.value[classId] = []
-    }
-  }
-  return classSubjectsCache.value[classId]
-}
-
-// 指定班级的成绩相关科目（id/name）；未指定班级时回退为全部科目（兼容旧数据展示）
-const scoreSubjectsFor = (classId) => {
-  if (!classId) return subjects.value
-  const list = classSubjectsCache.value[classId] || []
-  return list.filter(cs => cs.is_score_related).map(cs => ({
-    id: cs.subject_id,
-    name: cs.subject_name
-  }))
-}
+const { ensureClassSubjects, scoreSubjectsFor } = useClassSubjects(subjects)
 
 // 顶部筛选科目选项：跟随所选班级
 const filterSubjectOptions = computed(() => scoreSubjectsFor(filterClassId.value))
 
-// 录入弹窗科目选项：跟随所选学生的班级
-const formSubjectOptions = computed(() => {
-  const student = students.value.find(s => s.id === form.student_id)
-  if (!student) return []
-  return scoreSubjectsFor(student.class_id)
-})
-
-const rules = {
-  student_id: [{ required: true, message: '请选择学生', trigger: 'change' }],
-  subject_id: [{ required: true, message: '请选择科目', trigger: 'change' }],
-  score: [{ required: true, message: '请输入成绩', trigger: 'blur' }],
-  semester: [{ required: true, message: '请选择学期', trigger: 'change' }]
-}
-
-const getScoreType = (score) => {
-  if (score >= 90) return 'success'
-  if (score >= 60) return 'warning'
+const getScoreType = (score, fullScore = 100) => {
+  // 按得分率分档（满分非 100 时折算）
+  const pct = score / (fullScore || 100) * 100
+  if (pct >= 90) return 'success'
+  if (pct >= 60) return 'warning'
   return 'danger'
 }
 
@@ -389,326 +285,23 @@ const loadStudents = async () => {
   students.value = (data?.data || []).filter(s => s.id)
 }
 
-const showAnalysisDialog = ref(false)
-const activeAnalysisTab = ref('distribution')
-const distributionChartRef = ref(null)
-const subjectsChartRef = ref(null)
-const trendChartRef = ref(null)
-const studentRanking = ref([])
-const exportLoading = ref(false)
-const scoreDistribution = reactive({
-  excellent: 0,
-  good: 0,
-  pass: 0,
-  fail: 0
-})
-
-const statisticsData = ref(null)
-
 const calculateStatistics = () => {
   if (!scores.value || scores.value.length === 0) {
     statisticsData.value = null
     return
   }
-  
+
   const scores_list = scores.value.map(s => s.score).filter(s => typeof s === 'number')
   if (scores_list.length === 0) {
     statisticsData.value = null
     return
   }
-  
+
   const average = scores_list.reduce((a, b) => a + b, 0) / scores_list.length
   const max = Math.max(...scores_list)
   const min = Math.min(...scores_list)
 
-  statisticsData.value = {
-    average,
-    max,
-    min
-  }
-  
-  scoreDistribution.excellent = scores_list.filter(s => s >= 90).length
-  scoreDistribution.good = scores_list.filter(s => s >= 80 && s < 90).length
-  scoreDistribution.pass = scores_list.filter(s => s >= 60 && s < 80).length
-  scoreDistribution.fail = scores_list.filter(s => s < 60).length
-}
-
-const handleOpenAnalysis = () => {
-  router.push('/analysis')
-}
-
-const handleExportScores = async () => {
-  try {
-    exportLoading.value = true
-    
-    const data = await api.scores.list({
-      class_id: filterClassId.value || undefined,
-      subject_id: filterSubjectId.value || undefined,
-      semester: filterSemester.value || undefined,
-      page: 1,
-      page_size: 1000
-    })
-    
-    const scoresList = data?.data || []
-    
-    if (scoresList.length === 0) {
-      ElMessage.warning('没有成绩数据可导出')
-      exportLoading.value = false
-      return
-    }
-    
-    const exportData = [
-      ['学生姓名', '科目', '成绩', '考试类型', '考试日期', '学期']
-    ]
-    
-    scoresList.forEach(s => {
-      exportData.push([
-        s.student_name || '',
-        s.subject_name || '',
-        s.score || '',
-        s.exam_type || '',
-        s.exam_date ? s.exam_date.substring(0, 10) : '',
-        s.semester || ''
-      ])
-    })
-    
-    const ws = XLSX.utils.aoa_to_sheet(exportData)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, '成绩单')
-    
-    const timestamp = new Date().toISOString().slice(0, 10)
-    XLSX.writeFile(wb, `成绩单_${timestamp}.xlsx`)
-    
-    exportLoading.value = false
-    ElMessage.success(`成功导出 ${scoresList.length} 条成绩记录`)
-  } catch (e) {
-    exportLoading.value = false
-    console.error('导出成绩失败:', e)
-    ElMessage.error('导出成绩失败')
-  }
-}
-
-const initDistributionChart = () => {
-  if (!distributionChartRef.value || !scores.value.length) return
-  
-  const chart = echarts.init(distributionChartRef.value)
-  const distribution = [0, 0, 0, 0, 0]
-  
-  scores.value.forEach(s => {
-    const score = parseFloat(s.score)
-    if (isNaN(score)) return
-    if (score >= 90) distribution[0]++
-    else if (score >= 80) distribution[1]++
-    else if (score >= 70) distribution[2]++
-    else if (score >= 60) distribution[3]++
-    else distribution[4]++
-  })
-  
-  const option = {
-    title: {
-      text: '成绩分布直方图',
-      left: 'center',
-      top: 10
-    },
-    tooltip: {
-      trigger: 'axis',
-      axisPointer: { type: 'shadow' }
-    },
-    grid: {
-      left: '10%',
-      right: '10%',
-      top: '80px',
-      bottom: '60px'
-    },
-    xAxis: {
-      type: 'category',
-      data: ['90-100分', '80-89分', '70-79分', '60-69分', '60分以下']
-    },
-    yAxis: {
-      type: 'value'
-    },
-    series: [{
-      data: distribution,
-      type: 'bar',
-      itemStyle: {
-        color: (params) => {
-          const colors = ['#67C23A', '#409EFF', '#E6A23C', '#F56C6C', '#909399']
-          return colors[params.dataIndex]
-        }
-      },
-      label: {
-        show: true,
-        position: 'top'
-      }
-    }]
-  }
-  
-  chart.setOption(option)
-}
-
-const initSubjectsChart = () => {
-  if (!subjectsChartRef.value || !scores.value.length) return
-  
-  const chart = echarts.init(subjectsChartRef.value)
-  const subjectScores = {}
-  
-  scores.value.forEach(s => {
-    const subject = s.subject_name || '未知科目'
-    const score = parseFloat(s.score)
-    if (!subjectScores[subject]) {
-      subjectScores[subject] = []
-    }
-    if (!isNaN(score)) {
-      subjectScores[subject].push(score)
-    }
-  })
-  
-  const subjects = Object.keys(subjectScores)
-  const averages = subjects.map(s => {
-    const scores_list = subjectScores[s]
-    if (scores_list.length === 0) return 0
-    const avg = scores_list.reduce((a, b) => a + b, 0) / scores_list.length
-    return parseFloat(avg.toFixed(1))
-  })
-  
-  const option = {
-    title: {
-      text: '各科目平均分对比',
-      left: 'center',
-      top: 10
-    },
-    tooltip: {
-      trigger: 'axis'
-    },
-    grid: {
-      left: '10%',
-      right: '10%',
-      top: '80px',
-      bottom: '60px'
-    },
-    xAxis: {
-      type: 'category',
-      data: subjects,
-      axisLabel: {
-        interval: 0,
-        rotate: subjects.length > 5 ? 30 : 0,
-        fontSize: 11
-      }
-    },
-    yAxis: {
-      type: 'value',
-      min: 0,
-      max: 100
-    },
-    series: [{
-      data: averages,
-      type: 'bar',
-      itemStyle: {
-        color: '#409EFF'
-      },
-      label: {
-        show: true,
-        position: 'top',
-        formatter: '{c}'
-      }
-    }]
-  }
-  
-  chart.setOption(option)
-}
-
-const initTrendChart = () => {
-  if (!trendChartRef.value || !scores.value.length) return
-  
-  const chart = echarts.init(trendChartRef.value)
-  
-  const examDates = [...new Set(scores.value.map(s => s.exam_date))].filter(d => d).sort()
-  
-  const subjectScores = {}
-  scores.value.forEach(s => {
-    const subject = s.subject_name || '未知科目'
-    const score = parseFloat(s.score)
-    if (!subjectScores[subject]) {
-      subjectScores[subject] = []
-    }
-    if (!isNaN(score)) {
-      subjectScores[subject].push({
-        date: s.exam_date,
-        score: score
-      })
-    }
-  })
-  
-  const series = Object.keys(subjectScores).map(subject => ({
-    name: subject,
-    type: 'line',
-    data: examDates.map(date => {
-      const record = subjectScores[subject].find(r => r.date === date)
-      return record ? record.score : null
-    }),
-    smooth: true
-  }))
-  
-  const option = {
-    title: {
-      text: '成绩趋势变化',
-      left: 'center',
-      top: 10
-    },
-    tooltip: {
-      trigger: 'axis'
-    },
-    grid: {
-      left: '10%',
-      right: '10%',
-      top: '80px',
-      bottom: '80px'
-    },
-    legend: {
-      data: Object.keys(subjectScores),
-      bottom: 10
-    },
-    xAxis: {
-      type: 'category',
-      data: examDates.map(d => d ? d.substring(0, 10) : '')
-    },
-    yAxis: {
-      type: 'value',
-      min: 0,
-      max: 100
-    },
-    series
-  }
-  
-  chart.setOption(option)
-}
-
-const calculateStudentRanking = () => {
-  const studentScores = {}
-  
-  scores.value.forEach(s => {
-    if (!studentScores[s.student_name]) {
-      studentScores[s.student_name] = []
-    }
-    studentScores[s.student_name].push(s.score)
-  })
-  
-  const rankings = Object.keys(studentScores).map(name => {
-    const scores_list = studentScores[name]
-    return {
-      student_name: name,
-      average_score: (scores_list.reduce((a, b) => a + b, 0) / scores_list.length).toFixed(1),
-      total_score: scores_list.reduce((a, b) => a + b, 0),
-      subject_count: scores_list.length
-    }
-  })
-  
-  rankings.sort((a, b) => b.average_score - a.average_score)
-  
-  studentRanking.value = rankings.map((r, index) => ({
-    ...r,
-    rank: index + 1
-  }))
+  statisticsData.value = { average, max, min }
 }
 
 const loadScores = async () => {
@@ -724,6 +317,7 @@ const loadScores = async () => {
       class_id: filterClassId.value,
       subject_id: filterSubjectId.value,
       semester: filterSemester.value,
+      exam_type: filterExamType.value || undefined,
       page: page.value,
       page_size: pageSize.value
     })
@@ -733,9 +327,9 @@ const loadScores = async () => {
       subject_name: s.subject_name || subjects.value.find(sub => sub.id === s.subject_id)?.name || ''
     }))
     total.value = data?.total || scores.value.length
-    
+
     calculateStatistics()
-    calculateStudentRanking()
+    loadGradeAvg()
   } catch (e) {
     scores.value = []
     total.value = 0
@@ -744,222 +338,16 @@ const loadScores = async () => {
   }
 }
 
-const handleFileChange = (uploadFile) => {
-  const fileName = uploadFile.name
-  const fileExt = fileName.substring(fileName.lastIndexOf('.')).toLowerCase()
-
-  if (fileExt === '.xlsx' || fileExt === '.xls') {
-    const reader = new FileReader()
-    reader.onload = async (e) => {
-      try {
-        if (!batchForm.class_id) {
-          ElMessage.warning('请先选择班级再上传文件')
-          return
-        }
-        // 确保该班级科目配置已加载（成绩相关科目为合法列）
-        await ensureClassSubjects(batchForm.class_id)
-        const scoreSubjects = scoreSubjectsFor(batchForm.class_id)
-        if (!scoreSubjects.length) {
-          ElMessage.warning('该班级没有「成绩相关」的科目，请先在科目管理中配置')
-          return
-        }
-
-        const data = new Uint8Array(e.target.result)
-        const workbook = XLSX.read(data, { type: 'array' })
-        const firstSheetName = workbook.SheetNames[0]
-        const worksheet = workbook.Sheets[firstSheetName]
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
-
-        if (jsonData.length > 1) {
-          const header = jsonData[0].map(h => String(h).trim())
-
-          const noIndex = header.indexOf('学号')
-          if (noIndex < 0) {
-            ElMessage.error('模板中缺少「学号」列，请重新下载模板')
-            return
-          }
-
-          // 科目列 = 表头中能匹配到该班级「成绩相关」科目的列
-          // 其他列（姓名/等级列/总分/总等/综等）自动忽略
-          const subjectColumns = []
-          scoreSubjects.forEach(s => {
-            const idx = header.indexOf(s.name)
-            if (idx >= 0) subjectColumns.push({ index: idx, subject_id: s.id, name: s.name })
-          })
-          if (!subjectColumns.length) {
-            ElMessage.error('未匹配到任何「成绩相关」科目列，请按模板填写后重新上传')
-            return
-          }
-
-          const rows = jsonData.slice(1).filter(row => row.some(cell => cell !== undefined && cell !== null && cell !== ''))
-
-          const scoreList = []
-          rows.forEach(row => {
-            const studentNo = row[noIndex] !== undefined ? String(row[noIndex]).trim() : ''
-            if (!studentNo) return
-            subjectColumns.forEach(col => {
-              const cell = row[col.index]
-              if (cell === undefined || cell === null || String(cell).trim() === '') return
-              const score = parseFloat(cell)
-              if (!isNaN(score)) {
-                scoreList.push({
-                  student_no: studentNo,
-                  subject_id: col.subject_id,
-                  subject_name: col.name,
-                  score
-                })
-              }
-            })
-          })
-
-          batchForm.scoreList = scoreList
-
-          const csvLines = rows.map(row => {
-            return header.map((col, i) => {
-              const value = row[i] !== undefined ? String(row[i]) : ''
-              return value
-            }).join(',')
-          })
-          batchForm.scoreData = csvLines.join('\n')
-
-          const subjectNames = [...new Set(subjectColumns.map(c => c.name))]
-          ElMessage.success(`解析成功：${rows.length} 行，匹配科目列 [${subjectNames.join('、')}]，共 ${scoreList.length} 条成绩数据`)
-        } else {
-          ElMessage.warning('Excel文件中没有数据')
-        }
-      } catch (err) {
-        console.error('Excel解析失败:', err)
-        ElMessage.error('Excel文件解析失败')
-      }
-    }
-    reader.readAsArrayBuffer(uploadFile.raw)
-  } else {
-    ElMessage.warning('请上传Excel文件（.xlsx）')
-  }
-}
-
-const downloadTemplate = async () => {
-  if (!batchForm.class_id) {
-    ElMessage.warning('请先选择班级，模板科目列随班级科目配置生成')
-    return
-  }
-  await ensureClassSubjects(batchForm.class_id)
-  const scoreSubjects = scoreSubjectsFor(batchForm.class_id)
-  if (!scoreSubjects.length) {
-    ElMessage.warning('该班级没有「成绩相关」的科目，请先在科目管理中配置')
-    return
-  }
-
-  // 模板列：学号 + 该班级全部成绩相关科目（总分/总等/综/等级列不属于成绩科目，不出现在模板中）
-  const data = [
-    ['学号', ...scoreSubjects.map(s => s.name)],
-    ['1', ...scoreSubjects.map(() => '')],
-    ['2', ...scoreSubjects.map(() => '')]
-  ]
-
-  const ws = XLSX.utils.aoa_to_sheet(data)
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, '成绩信息')
-
-  const className = classes.value.find(c => c.id === batchForm.class_id)?.name || batchForm.class_id
-  XLSX.writeFile(wb, `成绩导入模板_${className}.xlsx`)
-}
-
-const handleBatchImport = async () => {
-  if (!batchForm.class_id) {
-    ElMessage.warning('请选择班级')
-    return
-  }
-  if (!batchForm.semester) {
-    ElMessage.warning('请选择学期')
-    return
-  }
-  if (!batchForm.scoreList || batchForm.scoreList.length === 0) {
-    ElMessage.warning('请先上传文件')
-    return
-  }
-
-  batchLoading.value = true
-
-  const scoresList = batchForm.scoreList.map(s => ({
-    student_no: s.student_no,
-    class_id: batchForm.class_id,
-    subject_id: s.subject_id,
-    score: s.score,
-    exam_type: batchForm.exam_type || '期中考试',
-    exam_date: batchForm.exam_date,
-    semester: batchForm.semester
-  }))
-
-  try {
-    const token = localStorage.getItem('token')
-    const response = await fetch('/api/scores/batch', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json; charset=utf-8'
-      },
-      body: JSON.stringify({ scores: scoresList })
-    })
-
-    const result = await response.json()
-
-    if (result.success > 0) {
-      ElMessage.success(`成功导入 ${result.success} 条成绩`)
-    }
-    if (result.failed > 0) {
-      ElMessage.warning(`导入失败 ${result.failed} 条`)
-    }
-    if (result.errors && result.errors.length > 0) {
-      console.log('导入错误:', result.errors)
-      ElMessage.warning(`错误详情: ${result.errors.slice(0, 5).join(', ')}${result.errors.length > 5 ? '...' : ''}`)
-    }
-
-    showBatchDialog.value = false
-    batchForm.scoreData = ''
-    batchForm.scoreList = []
-    batchForm.class_id = null
-    batchForm.semester = ''
-    loadScores()
-  } catch (e) {
-    ElMessage.error('批量导入失败')
-  } finally {
-    batchLoading.value = false
-  }
-}
-
 const handleAdd = () => {
   isEdit.value = false
-  editingId.value = null
-  Object.assign(form, {
-    student_id: null,
-    subject_id: null,
-    class_id: filterClassId.value || classes.value[0]?.id,
-    score: 0,
-    exam_type: '期中考试',
-    exam_date: null,
-    semester: semesters.value[0]?.name || ''
-  })
+  editingRow.value = null
   dialogVisible.value = true
 }
 
-const handleEdit = async (row) => {
+const handleEdit = (row) => {
   isEdit.value = true
-  editingId.value = row.id
-  Object.assign(form, {
-    student_id: row.student_id,
-    subject_id: row.subject_id,
-    class_id: row.class_id,
-    score: row.score,
-    exam_type: row.exam_type,
-    exam_date: row.exam_date ? String(row.exam_date).slice(0, 19) : null,
-    semester: row.semester
-  })
+  editingRow.value = row
   dialogVisible.value = true
-  // 编辑时联动加载该学生班级的成绩相关科目，保证科目下拉显示名称且可选
-  if (row.class_id) {
-    await ensureClassSubjects(row.class_id)
-  }
 }
 
 const handleDelete = async (row) => {
@@ -975,30 +363,27 @@ const handleDelete = async (row) => {
   }
 }
 
-const handleSubmit = async () => {
-  await formRef.value.validate()
+const handleSubmit = async (formData) => {
   try {
-    const data = {
-      student_id: form.student_id,
-      subject_id: form.subject_id,
-      class_id: students.value.find(s => s.id === form.student_id)?.class_id || form.class_id,
-      score: form.score,
-      exam_type: form.exam_type,
-      exam_date: form.exam_date,
-      semester: form.semester
-    }
-    
     if (isEdit.value) {
-      await api.scores.update(editingId.value, {
-        subject_id: form.subject_id,
-        score: form.score,
-        exam_type: form.exam_type,
-        exam_date: form.exam_date,
-        semester: form.semester
+      await api.scores.update(editingRow.value.id, {
+        subject_id: formData.subject_id,
+        score: formData.score,
+        exam_type: formData.exam_type,
+        exam_date: formData.exam_date,
+        semester: formData.semester
       })
       ElMessage.success('修改成功')
     } else {
-      await api.scores.create(data)
+      await api.scores.create({
+        student_id: formData.student_id,
+        subject_id: formData.subject_id,
+        class_id: students.value.find(s => s.id === formData.student_id)?.class_id || formData.class_id,
+        score: formData.score,
+        exam_type: formData.exam_type,
+        exam_date: formData.exam_date,
+        semester: formData.semester
+      })
       ElMessage.success('创建成功')
     }
     dialogVisible.value = false
@@ -1008,54 +393,72 @@ const handleSubmit = async () => {
   }
 }
 
+const handleOpenAnalysis = () => {
+  // 携带已选中的筛选条件到成绩分析页（班级/学期/考试类型）
+  const query = {}
+  if (filterClassId.value) query.class_id = filterClassId.value
+  if (filterSemester.value) query.semester = filterSemester.value
+  if (filterExamType.value) query.exam_type = filterExamType.value
+  if (filterSubjectId.value) query.subject_id = filterSubjectId.value
+  router.push({ path: '/analysis', query })
+}
+
+const handleExportScores = async () => {
+  try {
+    exportLoading.value = true
+
+    const data = await api.scores.list({
+      class_id: filterClassId.value || undefined,
+      subject_id: filterSubjectId.value || undefined,
+      semester: filterSemester.value || undefined,
+      exam_type: filterExamType.value || undefined,
+      page: 1,
+      page_size: 1000
+    })
+
+    const scoresList = data?.data || []
+
+    if (scoresList.length === 0) {
+      ElMessage.warning('没有成绩数据可导出')
+      exportLoading.value = false
+      return
+    }
+
+    const exportData = [
+      ['学生姓名', '科目', '成绩', '考试类型', '考试日期', '学期']
+    ]
+
+    scoresList.forEach(s => {
+      exportData.push([
+        s.student_name || '',
+        s.subject_name || '',
+        s.score || '',
+        s.exam_type || '',
+        s.exam_date ? s.exam_date.substring(0, 10) : '',
+        s.semester || ''
+      ])
+    })
+
+    const ws = XLSX.utils.aoa_to_sheet(exportData)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, '成绩单')
+
+    const timestamp = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `成绩单_${timestamp}.xlsx`)
+
+    exportLoading.value = false
+    ElMessage.success(`成功导出 ${scoresList.length} 条成绩记录`)
+  } catch (e) {
+    exportLoading.value = false
+    console.error('导出成绩失败:', e)
+    ElMessage.error('导出成绩失败')
+  }
+}
+
 const formatDate = (dateStr) => {
   if (!dateStr) return '-'
   return new Date(dateStr).toLocaleString('zh-CN')
 }
-
-// 录入弹窗：选择学生后联动加载其班级的成绩相关科目，并清空失效的科目选择
-watch(() => form.student_id, async (newId) => {
-  if (isEdit.value || !newId) return
-  const student = students.value.find(s => s.id === newId)
-  if (student?.class_id) {
-    await ensureClassSubjects(student.class_id)
-    const valid = scoreSubjectsFor(student.class_id).some(s => s.id === form.subject_id)
-    if (!valid) form.subject_id = null
-  }
-})
-
-// 批量导入：切换班级后清空已解析的文件数据（模板列随班级变化）
-const handleBatchClassChange = async () => {
-  batchForm.scoreData = ''
-  batchForm.scoreList = []
-  if (batchForm.class_id) {
-    await ensureClassSubjects(batchForm.class_id)
-  }
-}
-
-watch(() => showAnalysisDialog.value, (newVal) => {
-  if (newVal) {
-    nextTick(() => {
-      initDistributionChart()
-      initSubjectsChart()
-      initTrendChart()
-    })
-  }
-})
-
-watch(() => activeAnalysisTab.value, (newVal) => {
-  if (newVal) {
-    nextTick(() => {
-      if (newVal === 'distribution') {
-        initDistributionChart()
-      } else if (newVal === 'subjects') {
-        initSubjectsChart()
-      } else if (newVal === 'details') {
-        initTrendChart()
-      }
-    })
-  }
-})
 
 onMounted(async () => {
   await Promise.all([loadClasses(), loadSubjects(), loadSemesters(), loadStudents()])
@@ -1066,6 +469,45 @@ onMounted(async () => {
 <style scoped>
 .scores {
   padding: 20px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.filter-card {
+  margin-bottom: 16px;
+}
+
+.filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.filter-label {
+  font-size: 14px;
+  color: #909399;
 }
 
 .statistics-card {
@@ -1102,17 +544,9 @@ onMounted(async () => {
   color: #F56C6C;
 }
 
-.analysis-container {
+.table-container {
+  background: white;
   padding: 20px;
-}
-
-.chart-container {
-  width: 100%;
-  height: 400px;
-  margin-top: 20px;
-}
-
-.detail-stats {
-  margin-bottom: 30px;
+  border-radius: 4px;
 }
 </style>

@@ -37,7 +37,7 @@
 import argparse
 import os
 import sys
-from datetime import datetime
+from datetime import date, datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
@@ -48,7 +48,7 @@ CLASS_GRADE = 7                # 七年级
 SEMESTER_NAME = "2026-2"       # 成绩所属学期（沿用系统当前学期命名）
 SEMESTER_YEAR = 2026
 EXAM_TYPE = "期末考试"         # 七下期末
-EXAM_DATE = datetime(2026, 6, 30)  # 考试日期（趋势图横轴排序依据）
+EXAM_DATE = date(2026, 6, 30)  # 考试日期（趋势图横轴排序依据）
 XLSX_PATH = os.path.join(BASE_DIR, "七下期末.xlsx")
 
 # 计分科目（xlsx 中有数值成绩的列）与展示科目（仅等级，不计分）
@@ -406,7 +406,74 @@ def _stop_public_tunnels(procs):
             pass
 
 
+def _detect_lan_ip() -> str:
+    """探测本机局域网 IP（探测失败回退 127.0.0.1）"""
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
+def _ensure_env_file() -> bool:
+    """首次运行自动生成 .env（默认 SQLite 免安装 + 随机密钥 + 本机 IP）。
+
+    返回是否新生成。生成后提示用户可按需修改（如切换 PostgreSQL）。
+    """
+    env_path = os.path.join(BASE_DIR, ".env")
+    if os.path.exists(env_path):
+        return False
+
+    import secrets as _secrets
+    from pathlib import Path as _Path
+    db_path = (_Path(BASE_DIR) / "ddclass.db").as_posix()
+    content = f"""# ============================================================
+# DD-CLASS 班级管理系统 统一配置（run.py 首次运行自动生成）
+# 零依赖快速体验默认使用 SQLite（免安装）；生产环境建议改用 PostgreSQL：
+#   1. 安装 PostgreSQL 并建库：CREATE DATABASE ddclass;
+#   2. 将下方 DATABASE_URL 改为 postgresql://用户名:密码@127.0.0.1:5432/ddclass
+# 修改本文件后需重启服务生效
+# ============================================================
+
+# 本机局域网 IP（自动探测；换网络后改这里）
+SERVER_IP={_detect_lan_ip()}
+
+# 服务端口
+BACKEND_HOST=0.0.0.0
+BACKEND_PORT=8001
+FRONTEND_HOST=0.0.0.0
+FRONTEND_PORT=3000
+PARENT_HOST=0.0.0.0
+PARENT_PORT=5174
+
+# 数据库（默认 SQLite 免安装）
+DATABASE_URL=sqlite:///{db_path}
+
+# JWT 签名密钥（已自动生成随机值）
+SECRET_KEY={_secrets.token_hex(32)}
+ACCESS_TOKEN_EXPIRE_MINUTES=1440
+
+# 额外允许的跨域来源（一般留空）
+CORS_ORIGINS=
+
+# 公网访问（cpolar 内网穿透，临时远程测试用）
+PUBLIC_ACCESS=false
+CPOLAR_AUTHTOKEN=
+"""
+    with open(env_path, "w", encoding="utf-8") as f:
+        f.write(content)
+    return True
+
+
 def main():
+    # 首次运行自动生成 .env（默认 SQLite + 随机密钥 + 本机 IP），必须在导入 app.config 之前
+    if _ensure_env_file():
+        print("[run] 未检测到 .env，已自动生成（默认 SQLite 免安装 + 随机密钥）")
+        print("[run] 生产环境建议编辑 .env 切换 PostgreSQL（文件内有说明）\n")
     from app.config import settings
 
     parser = argparse.ArgumentParser(description="班主任工作台一键启动脚本")
@@ -419,7 +486,6 @@ def main():
     parser.add_argument("--reset-db", action="store_true", help="清空数据库后重新初始化（危险！）")
     parser.add_argument("--no-xlsx", action="store_true", help="初始化时跳过七下期末.xlsx 种子数据")
     args = parser.parse_args()
-
     host = args.host or settings.BACKEND_HOST
     port = args.port or settings.BACKEND_PORT
 

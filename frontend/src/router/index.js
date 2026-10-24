@@ -57,11 +57,6 @@ const routes = [
         component: () => import('@/views/Attendance.vue')
       },
       {
-        path: 'rankings',
-        name: 'Rankings',
-        component: () => import('@/views/Rankings.vue')
-      },
-      {
         path: 'analysis',
         name: 'Analysis',
         component: () => import('@/views/ScoreAnalysis.vue')
@@ -151,6 +146,9 @@ router.beforeEach((to, from, next) => {
     next('/dashboard')
   } else if (
     to.path !== '/dashboard' &&
+    // 配置尚未初始化（首次整页加载且未登录过）时先放行，
+    // Layout 挂载并拉取配置后会对接隐藏页面做二次跳转，避免旧值误弹
+    userStore.pageAccessLoaded &&
     !userStore.isPageVisible(to.path) &&
     !(userStore.isAdmin && to.path === '/page-access') // 管理员始终可访问页面访问管理，防止锁死
   ) {

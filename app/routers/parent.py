@@ -17,6 +17,20 @@ def generate_parent_code():
     return secrets.token_hex(4).upper()
 
 
+def _code_expired(student) -> bool:
+    """判断家长码是否过期。
+
+    PostgreSQL 的 timestamptz 取回带时区的 datetime，与 naive 的 datetime.now()
+    直接比较会抛 TypeError（历史上导致家长端全接口 500），此处按取回值是否
+    带时区选择对应的"当前时间"再比较，两种数据库方言都安全。
+    """
+    exp = student.parent_code_expires
+    if not exp:
+        return False
+    now = datetime.now(exp.tzinfo) if exp.tzinfo is not None else datetime.now()
+    return exp < now
+
+
 @router.get("/verify/{parent_code}")
 def verify_parent_code(
     parent_code: str,
@@ -30,7 +44,7 @@ def verify_parent_code(
     if not student:
         return {"valid": False, "message": "家长码无效"}
 
-    if student.parent_code_expires and student.parent_code_expires < datetime.now():
+    if _code_expired(student):
         return {"valid": False, "message": "家长码已过期"}
 
     class_obj = db.query(Class).filter(Class.id == student.class_id).first()
@@ -56,7 +70,7 @@ def get_student_by_parent_code(
     if not student:
         raise HTTPException(status_code=404, detail="家长码无效")
 
-    if student.parent_code_expires and student.parent_code_expires < datetime.now():
+    if _code_expired(student):
         raise HTTPException(status_code=403, detail="家长码已过期")
 
     class_obj = db.query(Class).filter(Class.id == student.class_id).first()
@@ -88,7 +102,7 @@ def get_student_scores_by_parent_code(
     if not student:
         raise HTTPException(status_code=404, detail="家长码无效")
 
-    if student.parent_code_expires and student.parent_code_expires < datetime.now():
+    if _code_expired(student):
         raise HTTPException(status_code=403, detail="家长码已过期")
 
     query = db.query(Score).filter(Score.student_id == student.id)
@@ -131,7 +145,7 @@ def get_class_notifications_by_parent_code(
     if not student:
         raise HTTPException(status_code=404, detail="家长码无效")
 
-    if student.parent_code_expires and student.parent_code_expires < datetime.now():
+    if _code_expired(student):
         raise HTTPException(status_code=403, detail="家长码已过期")
 
     query = db.query(Notification).filter(
@@ -177,7 +191,7 @@ def get_class_homework_by_parent_code(
     if not student:
         raise HTTPException(status_code=404, detail="家长码无效")
 
-    if student.parent_code_expires and student.parent_code_expires < datetime.now():
+    if _code_expired(student):
         raise HTTPException(status_code=403, detail="家长码已过期")
 
     query = db.query(Homework).filter(Homework.class_id == student.class_id)
@@ -216,7 +230,7 @@ def get_student_stats_by_parent_code(
     if not student:
         raise HTTPException(status_code=404, detail="家长码无效")
 
-    if student.parent_code_expires and student.parent_code_expires < datetime.now():
+    if _code_expired(student):
         raise HTTPException(status_code=403, detail="家长码已过期")
 
     score_query = db.query(Score).filter(Score.student_id == student.id)
@@ -225,7 +239,8 @@ def get_student_stats_by_parent_code(
 
     scores = score_query.all()
     total_exams = len(scores)
-    avg_score = round(sum(s.score for s in scores if s.score) / len([s for s in scores if s.score]), 2) if scores else 0
+    valid_scores = [s.score for s in scores if s.score]
+    avg_score = round(sum(valid_scores) / len(valid_scores), 2) if valid_scores else 0
 
     attendances = db.query(Attendance).filter(Attendance.student_id == student.id).all()
     total_days = len(attendances)

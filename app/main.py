@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings as app_settings
 from app.database import engine, Base, SessionLocal
 from app.models import Subject
-from app.ratelimit import ParentRateLimitMiddleware
+from app.ratelimit import LoginRateLimitMiddleware, ParentRateLimitMiddleware
 from app.routers import auth, classes, students, scores, attendance, dashboard, subjects, users, semesters, logs, points, settings, homework, notifications, parent, analytics, seating, conduct, teachers, page_access
 
 Base.metadata.create_all(bind=engine)
@@ -64,6 +64,8 @@ app.add_middleware(
 
 # 家长端查询接口限流（防家长码暴力枚举），详见 app/ratelimit.py
 app.add_middleware(ParentRateLimitMiddleware)
+# 登录接口限流（防密码暴力猜测）
+app.add_middleware(LoginRateLimitMiddleware)
 
 app.include_router(auth.router)
 app.include_router(classes.router)

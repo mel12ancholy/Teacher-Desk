@@ -1,16 +1,25 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
+import secrets
+import string
 from app.database import get_db
 from app.models import User, Class
 from app.schemas import UserCreate, UserUpdate, UserResponse
 from app.auth import get_current_active_user, get_password_hash
+from app.permissions import is_admin
 from app.services import LogService
 
 router = APIRouter(prefix="/api/users", tags=["用户管理"])
 
-def is_admin(user: User) -> bool:
-    return user.role.lower() == "admin" if user.role else False
+# 随机临时密码字符集：字母+数字，去掉易混淆的 0O1lI
+_TEMP_PASSWORD_ALPHABET = "".join(
+    c for c in string.ascii_letters + string.digits if c not in "0O1lI"
+)
+
+
+def _generate_temp_password(length: int = 10) -> str:
+    return "".join(secrets.choice(_TEMP_PASSWORD_ALPHABET) for _ in range(length))
 
 @router.get("", response_model=List[UserResponse])
 def get_users(
@@ -164,7 +173,7 @@ def reset_password(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """管理员重置用户密码为 123456789"""
+    """管理员将用户密码重置为随机临时密码（仅本次响应返回，请转告用户后尽快修改）"""
     if not is_admin(current_user):
         raise HTTPException(status_code=403, detail="只有管理员可以重置密码")
 
@@ -172,7 +181,8 @@ def reset_password(
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
 
-    user.hashed_password = get_password_hash("123456789")
+    new_password = _generate_temp_password()
+    user.hashed_password = get_password_hash(new_password)
     db.commit()
 
     LogService.log_update(
@@ -182,10 +192,10 @@ def reset_password(
         target_type="用户",
         target_id=user.id,
         target_name=f"{user.real_name}({user.username})",
-        changes="密码: 已重置为默认密码"
+        changes="密码: 已重置为随机临时密码"
     )
 
-    return {"message": "密码已重置为 123456789"}
+    return {"message": "密码已重置", "new_password": new_password}
 
 @router.delete("/{user_id}")
 def delete_user(

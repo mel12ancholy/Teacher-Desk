@@ -18,7 +18,9 @@
     python run.py --reset-db     # 清空数据库后重新初始化（危险！会删除全部数据）
 
 初始化内容：
-    1. 按当前 ORM 模型创建全部数据表（幂等，缺啥建啥）
+    1. 数据表：全新/历史库按 ORM 模型 create_all 后登记 alembic 版本；
+       已接入 alembic 的库执行 alembic upgrade head 应用增量迁移
+       （改模型后请先 alembic revision --autogenerate 生成迁移脚本）
     2. 种子数据（仅在缺失时写入，不改动已有数据）：
        - 管理员 admin/admin123、班主任 teacher1/123456
        - 班级「管理班级」（七年级）
@@ -55,34 +57,70 @@ GRADE_ONLY_SUBJECTS = ["音", "美", "信", "口", "书"]
 STANDARD_SUBJECTS = SCORE_SUBJECTS + GRADE_ONLY_SUBJECTS
 
 
-def _ensure_columns() -> None:
-    """create_all 不会给已有表新增列，此处对旧库补齐模型中新增的列（幂等）"""
-    from sqlalchemy import inspect, text
-    from app.database import engine
+def _run_alembic(action: str) -> None:
+    """以编程方式执行 alembic 命令（"upgrade" = 升级到最新版本，"stamp" = 仅登记当前版本）"""
+    try:
+        from alembic import command as alembic_command
+        from alembic.config import Config as AlembicConfig
+    except ImportError:
+        raise RuntimeError("缺少 alembic 依赖（数据库迁移），请执行: pip install -r requirements.txt")
 
-    # (表名, 列名, 列定义)
-    pending = [("users", "phone", "VARCHAR")]
+    cfg = AlembicConfig(os.path.join(BASE_DIR, "alembic.ini"))
+    cfg.set_main_option("script_location", os.path.join(BASE_DIR, "alembic"))
+    if action == "upgrade":
+        alembic_command.upgrade(cfg, "head")
+    else:
+        alembic_command.stamp(cfg, "head")
 
-    inspector = inspect(engine)
-    for table, column, ddl in pending:
-        if table not in inspector.get_table_names():
-            continue
-        if column not in [c["name"] for c in inspector.get_columns(table)]:
-            with engine.begin() as conn:
-                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
-            print(f"[init] 已为表 {table} 补充列 {column}")
+
+def _alembic_state(engine) -> str:
+    """判断数据库与 alembic 的关系："managed" / "legacy" / "fresh"
+
+    - managed：alembic_version 存在且版本号在当前迁移目录中 → 增量升级
+    - legacy：alembic_version 存在但版本号无法识别（早期试验遗留），
+              或版本号为空 → 按历史库处理：create_all 校准后重新登记
+    - fresh：没有 alembic_version（全新库或一直用 create_all 的库）
+    """
+    from alembic.config import Config as AlembicConfig
+    from alembic.script import ScriptDirectory
+    from sqlalchemy import text
+
+    cfg = AlembicConfig(os.path.join(BASE_DIR, "alembic.ini"))
+    cfg.set_main_option("script_location", os.path.join(BASE_DIR, "alembic"))
+    known = {rev.revision for rev in ScriptDirectory.from_config(cfg).walk_revisions()}
+
+    with engine.connect() as conn:
+        stored = [row[0] for row in conn.execute(text("SELECT version_num FROM alembic_version"))]
+    if stored and stored[0] in known:
+        return "managed"
+    return "legacy"
 
 
 def init_database(reset: bool = False, with_xlsx: bool = True) -> None:
+    from sqlalchemy import inspect, text
     from app.database import engine, Base, SessionLocal
     import app.models  # noqa: F401 确保所有模型注册到 Base
 
     if reset:
         print("[init] 正在清空数据库（drop_all）...")
         Base.metadata.drop_all(bind=engine)
-    print("[init] 创建/校验数据表（对齐当前 ORM 模型）...")
-    Base.metadata.create_all(bind=engine)
-    _ensure_columns()
+
+    if "alembic_version" in inspect(engine).get_table_names() and _alembic_state(engine) == "managed":
+        # 已接入 alembic 的库：只按迁移脚本演进
+        # （create_all 处理不了改列类型/删列/改约束，这些只能靠迁移脚本）
+        print("[init] 应用数据库迁移（alembic upgrade head）...")
+        _run_alembic("upgrade")
+    else:
+        # 全新库 / 历史库 / 遗留版本号：create_all 建齐缺表（对已有表幂等），
+        # 然后登记为当前版本；之后的结构变更用 alembic revision --autogenerate 生成迁移脚本
+        if "alembic_version" in inspect(engine).get_table_names():
+            # 早期试验遗留的版本号当前迁移目录不认识，stamp 前需清掉
+            print("[init] 检测到无法识别的 alembic 历史版本号，清除后重新登记...")
+            with engine.begin() as conn:
+                conn.execute(text("DELETE FROM alembic_version"))
+        print("[init] 创建/校验数据表（对齐当前 ORM 模型）...")
+        Base.metadata.create_all(bind=engine)
+        _run_alembic("stamp")
 
     db = SessionLocal()
     try:

@@ -79,6 +79,10 @@ uploads/
 *.sqlite3
 *.sql
 
+# ---------- cpolar 内网穿透工具（19MB 二进制不入库）----------
+# 公网模式需要时从 https://www.cpolar.com/download 下载，放到 tools/cpolar/ 目录即可
+tools/cpolar/
+
 # ---------- IDE ----------
 .vscode/
 .idea/

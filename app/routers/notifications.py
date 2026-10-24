@@ -9,14 +9,9 @@ from app.schemas import (
     NotificationCreate, NotificationUpdate, NotificationResponse, NotificationListResponse
 )
 from app.auth import get_current_active_user
+from app.permissions import is_admin, is_staff
 
 router = APIRouter(prefix="/api/notifications", tags=["通知管理"])
-
-def is_admin(user: User) -> bool:
-    return user.role == 'admin' if user.role else False
-
-def is_admin_or_teacher(user: User) -> bool:
-    return user.role.lower() in ["admin", "class_teacher", "teacher"] if user.role else False
 
 
 @router.get("", response_model=NotificationListResponse)
@@ -126,7 +121,7 @@ def create_notification(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    if not is_admin_or_teacher(current_user):
+    if not is_staff(current_user):
         raise HTTPException(status_code=403, detail="只有教师或管理员可以发布通知")
 
     if data.class_id:
@@ -174,7 +169,7 @@ def update_notification(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    if not is_admin_or_teacher(current_user):
+    if not is_staff(current_user):
         raise HTTPException(status_code=403, detail="只有教师或管理员可以修改通知")
 
     notification = db.query(Notification).filter(Notification.id == notification_id).first()
@@ -226,7 +221,7 @@ def delete_notification(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    if not is_admin_or_teacher(current_user):
+    if not is_staff(current_user):
         raise HTTPException(status_code=403, detail="只有教师或管理员可以删除通知")
 
     notification = db.query(Notification).filter(Notification.id == notification_id).first()

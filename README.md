@@ -75,6 +75,8 @@
 - **成绩分析**：单学生多维度分析、薄弱科目、分数段分布、班级对比
 - **系统设置**：自定义系统名称/Logo/简介/版权、Bing 每日壁纸开关
 - **一键启动**：`python run.py` 自动建表 + 种子数据 + 启动；公网模式自动建立 cpolar 隧道
+- **安全加固** ✨：SECRET_KEY 弱密钥拒启；家长端接口双层限流（防家长码暴力枚举）；管理员重置密码改为随机临时密码；CORS 收敛为白名单
+- **工程化** ✨：Alembic 数据库迁移（`run.py` 自动接入）；统一角色权限判断（`app/permissions.py`）；pytest 自动化回归测试（`tests/`，19 个用例）
 
 ---
 
@@ -176,8 +178,9 @@ parent-portal\start-parent.bat     # 或 cd parent-portal && npm run dev
 | `FRONTEND_HOST` / `FRONTEND_PORT` | `0.0.0.0` / `3000` | 班主任端监听地址/端口 |
 | `PARENT_HOST` / `PARENT_PORT` | `0.0.0.0` / `5174` | 家长端监听地址/端口 |
 | `DATABASE_URL` | — | PostgreSQL 连接串（注意密码避免 `$` 和引号） |
-| `SECRET_KEY` | — | JWT 签名密钥，生产环境务必修改 |
+| `SECRET_KEY` | — | JWT 签名密钥，**必填**：为空或保留模板默认值时后端拒绝启动 |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `1440` | 登录令牌有效期（24 小时） |
+| `CORS_ORIGINS` | 空 | 额外允许的跨域来源（逗号分隔）；默认已放行两个前端的常用地址，一般无需填写 |
 | `PUBLIC_ACCESS` | `false` | `true` 时启动自动建立 cpolar 公网隧道（仅映射两个前端端口） |
 | `CPOLAR_AUTHTOKEN` | 空 | cpolar 认证令牌，仅公网模式需要 |
 
@@ -196,6 +199,24 @@ parent-portal\start-parent.bat     # 或 cd parent-portal && npm run dev
 | `--no-xlsx` | 初始化时跳过「七下期末.xlsx」种子数据 |
 
 种子数据（幂等，不覆盖已有数据）：`admin` / `teacher1` 账号、班级「管理班级」、13 个标准科目（8 计分 + 5 等级）、学期「2026-2」、从根目录 `七下期末.xlsx` 导入学生与期末成绩。
+
+### 数据库迁移（Alembic）
+
+表结构由 Alembic 管理，`run.py` 启动时自动处理（新库建表后登记版本，已有库执行增量迁移）。
+修改 `app/models.py` 后生成并应用迁移：
+
+```bash
+alembic revision --autogenerate -m "说明改了什么"   # 检查生成的脚本后提交
+alembic upgrade head                                # 应用到数据库
+```
+
+### 运行测试
+
+```bash
+python -m pytest        # 自动使用 tests/_test.db（SQLite），不影响真实数据库
+```
+
+覆盖：认证链路、随机重置密码、家长端限流、SECRET_KEY 守卫、权限判断统一模块。
 
 ---
 
@@ -230,8 +251,12 @@ DD-CLASS/
 │   └── src/views/              # 22 个页面（Dashboard/学生/成绩/换座位/积分…）
 ├── parent-portal/              # 家长端（Vue 3）
 │   └── src/views/              # 登录/首页/成绩/作业/通知
-├── tools/cpolar/               # cpolar 便携版（公网隧道用）
+├── alembic/                    # 数据库迁移（versions/ 存放迁移脚本）
+├── tests/                      # pytest 自动化测试（SQLite 隔离环境）
+├── tools/cpolar/               # cpolar 便携版（不入库，公网模式用，需自行下载）
 ├── run.py                      # 一键启动脚本（初始化 + 启动后端）
+├── alembic.ini                 # Alembic 配置
+├── pytest.ini                  # pytest 配置（只收集 tests/）
 ├── 七下期末.xlsx                # 种子数据：学生与期末成绩
 ├── requirements.txt            # Python 依赖
 ├── .env.example                # 配置模板（复制为 .env 使用）
@@ -272,8 +297,9 @@ DD-CLASS/
 
 1. 注册 cpolar 账号（https://www.cpolar.com），在 dashboard 复制 authtoken
 2. `.env` 中设置 `PUBLIC_ACCESS=true` 并填入 `CPOLAR_AUTHTOKEN`
-3. 重启 `python run.py`（自动为两个前端建立隧道，控制台打印公网地址）
-4. 照常启动两个前端，把地址发给远程用户
+3. 确认本机有 cpolar 可执行文件（PATH 中可用，或从官网下载放到 `tools\cpolar\cpolar.exe`——该二进制已不随仓库分发）
+4. 重启 `python run.py`（自动为两个前端建立隧道，控制台打印公网地址）
+5. 照常启动两个前端，把地址发给远程用户
 
 > 仅暴露 3000/5174 两个前端端口，后端与数据库不直接暴露公网；免费版地址随机变化、限速约 1Mbps；测试完毕请改回 `false` 并重启。
 
@@ -304,6 +330,15 @@ netsh advfirewall firewall add rule name="DD-CLASS-Backend" dir=in action=allow 
 netsh advfirewall firewall add rule name="DD-CLASS-Frontend" dir=in action=allow protocol=TCP localport=3000
 netsh advfirewall firewall add rule name="DD-CLASS-Parent" dir=in action=allow protocol=TCP localport=5174
 ```
+
+**7. 启动报错「SECRET_KEY 未配置或仍为模板默认值」？**
+安全守卫：`.env` 缺失 `SECRET_KEY` 或仍是模板占位值时后端拒绝启动。按报错信息中给出的随机密钥示例填入 `.env` 后重启即可。
+
+**8. 家长端提示「访问过于频繁 / 校验失败次数过多」？**
+家长端接口的暴力枚举防护被触发（同一客户端短时间大量输错家长码，或全局失败次数达上限）。通常等 1～15 分钟自动解除；正常使用不会触发。
+
+**9. 数据库改了表结构怎么生效？**
+用 Alembic 生成迁移脚本并应用：`alembic revision --autogenerate -m "说明"` → 检查 `alembic/versions/` 下生成的脚本 → `alembic upgrade head`。直接改 `app/models.py` 不会自动改已有数据表。
 
 更多问题（忘记密码、Excel 导入、公网模式排障等）见 [部署指南.md](./部署指南.md)。
 

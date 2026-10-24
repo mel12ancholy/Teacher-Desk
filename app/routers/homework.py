@@ -9,11 +9,9 @@ from app.schemas import (
     HomeworkCreate, HomeworkUpdate, HomeworkResponse, HomeworkListResponse
 )
 from app.auth import get_current_active_user
+from app.permissions import is_staff
 
 router = APIRouter(prefix="/api/homeworks", tags=["作业管理"])
-
-def is_teacher(user: User) -> bool:
-    return user.role.lower() in ["admin", "class_teacher", "teacher"] if user.role else False
 
 
 def get_user_class_ids(user: User) -> List[int]:
@@ -125,7 +123,7 @@ def create_homework(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    if not is_teacher(current_user):
+    if not is_staff(current_user):
         raise HTTPException(status_code=403, detail="只有教师可以布置作业")
 
     class_obj = db.query(Class).filter(Class.id == data.class_id).first()
@@ -169,7 +167,7 @@ def update_homework(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    if not is_teacher(current_user):
+    if not is_staff(current_user):
         raise HTTPException(status_code=403, detail="只有教师可以修改作业")
 
     homework = db.query(Homework).filter(Homework.id == homework_id).first()
@@ -214,7 +212,7 @@ def delete_homework(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    if not is_teacher(current_user):
+    if not is_staff(current_user):
         raise HTTPException(status_code=403, detail="只有教师可以删除作业")
 
     homework = db.query(Homework).filter(Homework.id == homework_id).first()

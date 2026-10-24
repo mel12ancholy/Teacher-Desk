@@ -8,3 +8,11 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 python-multipart==0.0.6
+# 运行依赖（此前实际使用但未声明）
+openpyxl==3.1.5
+# 注意：httpx 0.28 移除了 app= 参数，与 FastAPI 0.109 自带的 starlette 0.35 TestClient 不兼容
+httpx==0.26.0
+# 数据库迁移
+alembic==1.20.1
+# 测试（pytest tests/）
+pytest==9.1.1

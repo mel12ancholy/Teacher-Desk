@@ -19,7 +19,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
             db=db,
             user_id=None,
             username=form_data.username,
-            ip_address=request.client.host if request else None,
+            ip_address=request.client.host if request and request.client else None,
             user_agent=str(request.headers.get("user-agent")) if request else None,
             success=False
         )
@@ -40,7 +40,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         db=db,
         user_id=user.id,
         username=user.username,
-        ip_address=request.client.host if request else None,
+        ip_address=request.client.host if request and request.client else None,
         user_agent=str(request.headers.get("user-agent")) if request else None,
         success=True
     )

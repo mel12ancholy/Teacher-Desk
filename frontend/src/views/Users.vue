@@ -175,12 +175,16 @@ const handleEdit = (row) => {
 const handleResetPassword = async (row) => {
   try {
     await ElMessageBox.confirm(
-      `确定将用户「${row.real_name}(${row.username})」的密码重置为 123456789 吗？`,
+      `确定将用户「${row.real_name}(${row.username})」的密码重置为随机密码吗？`,
       '重置密码',
       { type: 'warning', confirmButtonText: '重置', cancelButtonText: '取消' }
     )
-    await api.users.resetPassword(row.id)
-    ElMessage.success('密码已重置为 123456789')
+    const res = await api.users.resetPassword(row.id)
+    // 新密码仅本次展示，请转告用户并提醒其尽快在个人中心修改
+    await ElMessageBox.alert(`新密码：${res.new_password}`, '重置成功', {
+      confirmButtonText: '我已记录',
+      type: 'success'
+    })
   } catch (e) {
     if (e !== 'cancel' && e?.response) {
       ElMessage.error(e.response.data?.detail || '重置失败')

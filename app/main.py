@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.config import settings as app_settings
 from app.database import engine, Base, SessionLocal
 from app.models import Subject
+from app.ratelimit import ParentRateLimitMiddleware
 from app.routers import auth, classes, students, scores, attendance, dashboard, subjects, users, semesters, logs, points, settings, homework, notifications, parent, analytics, seating, conduct, teachers, page_access
 
 Base.metadata.create_all(bind=engine)
@@ -35,13 +37,33 @@ app = FastAPI(
     version="1.0.0"
 )
 
+def _build_cors_origins() -> list:
+    """允许的跨域来源：SERVER_IP / localhost / 127.0.0.1 下两个前端端口 + .env 追加项。
+
+    日常使用时前端经 Vite 代理转发 /api（同源请求），CORS 实际不参与；
+    此配置用于覆盖浏览器直连后端 API 的场景，不再允许任意来源。
+    """
+    origins = set()
+    for host in {app_settings.SERVER_IP, "localhost", "127.0.0.1"}:
+        if host and host.strip():
+            origins.add(f"http://{host.strip()}:{app_settings.FRONTEND_PORT}")
+            origins.add(f"http://{host.strip()}:{app_settings.PARENT_PORT}")
+    for extra in app_settings.CORS_ORIGINS.split(","):
+        if extra.strip():
+            origins.add(extra.strip())
+    return sorted(origins)
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_build_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 家长端查询接口限流（防家长码暴力枚举），详见 app/ratelimit.py
+app.add_middleware(ParentRateLimitMiddleware)
 
 app.include_router(auth.router)
 app.include_router(classes.router)

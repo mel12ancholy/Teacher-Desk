@@ -13,19 +13,11 @@ from app.schemas import (
     PointRankingResponse, PointStatsResponse
 )
 from app.auth import get_current_active_user
+from app.permissions import is_admin, is_class_teacher, is_staff
 from app.routers.classes import get_accessible_class_ids
 from datetime import datetime
 
 router = APIRouter(prefix="/api/points", tags=["积分系统"])
-
-def is_admin(user: User) -> bool:
-    return user.role.lower() == "admin" if user.role else False
-
-def is_class_teacher(user: User) -> bool:
-    return user.role.lower() == "class_teacher" if user.role else False
-
-def is_teacher(user: User) -> bool:
-    return user.role.lower() in ["admin", "class_teacher", "teacher"] if user.role else False
 
 @router.get("/stats", response_model=PointStatsResponse)
 def get_point_stats(
@@ -185,7 +177,7 @@ def add_points(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    if not is_teacher(current_user):
+    if not is_staff(current_user):
         raise HTTPException(status_code=403, detail="只有教师可以添加积分")
 
     student = db.query(Student).filter(Student.id == student_id).first()
@@ -328,7 +320,7 @@ def exchange_item(
 ):
     student_id = None
     
-    if is_teacher(current_user):
+    if is_staff(current_user):
         if not data.student_id:
             raise HTTPException(status_code=400, detail="教师帮学生兑换时需要提供student_id")
         student_id = data.student_id
@@ -446,7 +438,7 @@ def complete_exchange(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    if not is_teacher(current_user):
+    if not is_staff(current_user):
         raise HTTPException(status_code=403, detail="只有教师可以确认兑换")
 
     exchange = db.query(PointExchange).filter(PointExchange.id == exchange_id).first()

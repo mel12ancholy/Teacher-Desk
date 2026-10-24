@@ -31,7 +31,9 @@ export default defineConfig(({ mode }) => {
         '/api': {
           // 本机转发到后端（与班主任端共用同一后端），换局域网 IP 无需修改
           target: `http://127.0.0.1:${backendPort}`,
-          changeOrigin: true
+          changeOrigin: true,
+          // 透传真实客户端 IP（X-Forwarded-For），后端家长端限流依赖此头
+          xfwd: true
         }
       }
     }

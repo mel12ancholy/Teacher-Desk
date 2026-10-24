@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from app.database import get_db
 from app.models import Student, Class, Score, Attendance, Notification, User, Homework
 from app.auth import get_current_active_user
+from app.permissions import is_staff
 import secrets
 
 router = APIRouter(prefix="/api/parent", tags=["家长端口"])
@@ -249,7 +250,7 @@ def generate_student_parent_code(
     current_user: User = Depends(get_current_active_user)
 ):
     """生成/重置学生家长码（需要教师权限）"""
-    if current_user.role not in ['admin', 'class_teacher', 'teacher']:
+    if not is_staff(current_user):
         raise HTTPException(status_code=403, detail="只有教师可以操作")
 
     student = db.query(Student).filter(Student.id == student_id).first()
@@ -285,7 +286,7 @@ def batch_generate_student_parent_codes(
     current_user: User = Depends(get_current_active_user)
 ):
     """批量生成学生家长码（需要教师权限）"""
-    if current_user.role not in ['admin', 'class_teacher', 'teacher']:
+    if not is_staff(current_user):
         raise HTTPException(status_code=403, detail="只有教师可以操作")
 
     results = []
@@ -327,7 +328,7 @@ def revoke_student_parent_code(
     current_user: User = Depends(get_current_active_user)
 ):
     """撤销学生家长码（需要教师权限）"""
-    if current_user.role not in ['admin', 'class_teacher', 'teacher']:
+    if not is_staff(current_user):
         raise HTTPException(status_code=403, detail="只有教师可以操作")
 
     student = db.query(Student).filter(Student.id == student_id).first()

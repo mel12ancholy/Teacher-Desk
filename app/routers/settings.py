@@ -5,11 +5,9 @@ from app.database import get_db
 from app.models import SystemSetting, User
 from app.schemas import SystemSettingResponse, SystemSettingUpdate, SystemSettingsResponse
 from app.auth import get_current_active_user
+from app.permissions import is_admin
 
 router = APIRouter(prefix="/api/settings", tags=["系统设置"])
-
-def is_admin(user: User) -> bool:
-    return user.role.lower() == "admin" if user.role else False
 
 
 @router.get("/public", response_model=SystemSettingsResponse)
